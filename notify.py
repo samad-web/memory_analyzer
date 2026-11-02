@@ -213,7 +213,9 @@ def main(argv: list[str]) -> int:
     cwd = str(payload.get("cwd") or "") or os.getcwd()
     sid = str(payload.get("session_id") or "")
     transcript = str(payload.get("transcript_path") or "")
-    proj = os.path.basename(cwd.rstrip("\\/")) or "Claude Code"
+    # Named for the repository, not for whichever subdirectory the agent is
+    # standing in -- see agent_alert.project_root.
+    proj = agent_alert.project_name(cwd) or "Claude Code"
 
     if action == "clear":
         # "clear" alone dismisses everything; "clear ." just this project.
@@ -225,6 +227,15 @@ def main(argv: list[str]) -> int:
 
     key = agent_alert.key_for(cwd, sid)
     message = " ".join(argv[2:]).strip() or message_from(payload)
+
+    if action == "context":
+        # SessionStart. Prints the orientation block for this project and
+        # nothing else. Read-only: it never runs a check command and never
+        # touches the network, so the worst it can cost a starting session is
+        # the time to read a few rows.
+        import context
+
+        return context.emit(proj)
 
     if action in ("end", "session-end"):
         # Capture any final token usage before the session's row disappears.
@@ -307,6 +318,19 @@ def main(argv: list[str]) -> int:
             agent_alert.DONE, message, proj, key=key, sid=sid,
             cwd=cwd, hwnd=window_for(key),
         )
+        # Record what the turn did, not just what it cost. Deterministic
+        # parsing of the transcript Claude Code already wrote, so this spends
+        # no tokens and makes no network call; it swallows its own errors, so a
+        # failure here costs an observation and never the turn.
+        try:
+            import observe
+
+            observe.record(
+                sid, transcript, cwd, proj,
+                ended_at=time.time(), tok=tok, model=model,
+            )
+        except Exception:
+            pass
         return 0
 
     # Unknown action: record it as a finished turn rather than failing.

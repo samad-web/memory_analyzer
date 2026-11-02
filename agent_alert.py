@@ -63,15 +63,60 @@ _SORT_ORDER = {NEEDS_INPUT: 0, DONE: 1, WORKING: 2}
 
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]")
 
+# What marks the top of a project. `.git` is the one that matters; the others
+# cost nothing to check and help the occasional older checkout.
+_ROOT_MARKERS = (".git", ".hg", ".svn")
+
+
+def project_root(path: str, limit: int = 16) -> str:
+    """The repository root at or above ``path``, or ``path`` when there is none.
+
+    An agent does not stay in the directory it started in. Working inside
+    ``Voice_Transcriber/platform`` makes ``basename(cwd)`` read ``platform``,
+    so the session appears on the board under the name of whichever
+    subdirectory it happens to be standing in -- and moving between
+    subdirectories mid-session splits one agent across two rows, each going
+    stale in turn.
+
+    Resolving to the repository root fixes both: one session keeps one row,
+    under the name its human knows it by. A nested checkout still wins over its
+    parent, because the nearest marker is found first, which is correct -- that
+    inner repository really is the project.
+    """
+    path = os.path.abspath(path or os.getcwd())
+    current = path
+    for _ in range(limit):
+        for marker in _ROOT_MARKERS:
+            try:
+                if os.path.exists(os.path.join(current, marker)):
+                    return current
+            except OSError:
+                return path
+        parent = os.path.dirname(current)
+        if parent == current:
+            break
+        current = parent
+    return path
+
+
+def project_name(path: str) -> str:
+    """How a project should be labelled on the board."""
+    root = project_root(path)
+    return os.path.basename(root.rstrip("\\/")) or os.path.basename(root) or "project"
+
 
 def key_for(path: str, sid: str = "") -> str:
     """A stable, readable filename stem for one session of one project.
+
+    Keyed on the *repository* root rather than the raw working directory, so a
+    session that moves between subdirectories keeps one row instead of leaving
+    an orphan behind at every ``cd``.
 
     The basename alone would collide between two checkouts of the same name in
     different parents, so a short digest of the full path is appended; the
     session id (when known) separates concurrent sessions of the same project.
     """
-    path = os.path.abspath(path or os.getcwd())
+    path = project_root(path or os.getcwd())
     name = _UNSAFE.sub("_", os.path.basename(path.rstrip("\\/"))) or "project"
     digest = hashlib.md5(path.lower().encode("utf-8")).hexdigest()[:8]
     project = f"{name[:32]}-{digest}"

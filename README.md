@@ -388,6 +388,145 @@ land in the same table and let retrieval ignore which produced a row.
 can be *asserted* by running a command is one an unattended run cannot talk
 itself into having finished.
 
+## What a turn did
+
+`events.jsonl` records that a turn happened and what it cost. `observe.py`
+records what it *did*: the files it read, the files it changed, the commands it
+ran, whether the tests passed, and how the agent described its own work.
+
+It costs nothing. Everything is deterministic parsing of the transcript Claude
+Code already writes, so no model is called, no tokens are spent and no socket is
+opened -- which is what makes it safe to run from a hook on every turn. The read
+is incremental from a byte offset per session, in the same style as
+`events.tokens_since`, so a turn in a long session costs no more than a turn in
+a short one.
+
+Subagent lines (`isSidechain`) are skipped. A subagent's tool calls are means,
+not outcome, and folding them in buries the turn's actual result under a dozen
+searches someone else performed.
+
+Test outcomes are read from the runner's own summary in the tool result --
+pytest, jest, vitest, cargo, go, unittest and the rest. When a test ran but
+printed something unrecognised, the row says `ran, outcome unparsed` rather than
+staying silent, because silence would read as "no tests", which is a different
+and more dangerous claim.
+
+## Where a project is going
+
+The measurements say something uncomfortable. Over nine days, across 15
+projects: **351 prompts against 219 finished turns, and agents blocked on a
+human only 62 times.** Four turns in five never interrupt anyone, and the total
+blocked time was three hours.
+
+So attention during a turn is not the scarce resource. *Intent at the start of
+one* is -- 39 prompts a day, most of them saying what to do next. Batching
+permission prompts would optimise the fifth of the problem that is not the
+problem.
+
+`GOAL.md`, committed in the repository, is the fix. Three roles, deliberately
+separated:
+
+```
+python goals.py init      # write a starter GOAL.md
+python goals.py sync      # read it into the store
+python goals.py verify    # run each milestone's check and record what it proved
+python goals.py export    # write status back into the checkboxes
+python goals.py show      # print the board
+```
+
+- **`sync` owns structure.** The file is authoritative for the goal statement,
+  the milestone titles, their order, their acceptance criteria and their checks.
+- **`verify` owns status**, and is the only thing that may mark a milestone
+  done. It runs the check command and stores what happened as evidence. A
+  milestone with no check reports `unverifiable` rather than being quietly
+  called finished, and a check that starts failing *reopens* a done milestone,
+  so a regression comes back instead of staying ticked.
+- **`export` closes the loop**, putting status back where a human and a diff can
+  see it.
+
+`verify` runs commands out of a file in your repository, so it is a CLI command
+you invoke. Hooks stay read-only and never run a check.
+
+### Who wins when the file and the database disagree
+
+They disagree in exactly one interesting way: the file says `[ ]` and the
+database says done. Either a human just unticked the box to reopen the work, or
+`verify` proved it finished and the file is merely stale -- and the right
+response is opposite in the two cases.
+
+So `milestones.file_status` remembers what the checkbox said at the last sync. A
+*change* in the file is a human editing it, and wins. An unchanged file leaves
+the verified status alone. Without that column there is no way to tell the two
+apart, and whichever rule you pick is wrong half the time.
+
+## The orientation a session starts with
+
+A sixth hook, `SessionStart`, prints what `context.py` renders: the goal, the
+constraints, the live milestone and what is next, anything already settled, and
+the last few turns with the files they touched.
+
+```
+GOAL  Grow this from a machine-telemetry tile into an agent control plane...
+      constraint: No new runtime dependencies.
+      constraint: Hooks never touch the network and never block a turn.
+
+MILESTONES  5 of 11 done
+  [ ] Memory tab in the dashboard
+        acceptance: observations are searchable from both dashboards
+
+RECENT WORK
+  - stop logging resumes that resume nothing [2h ago]
+      changed: notify.py, README.md
+      tests: 93 passed
+```
+
+Finished milestones are a count, not a list -- done work is history, and what
+matters is the live one and the next one.
+
+It is **small on purpose**, inside a 4,000-character budget, because this is
+spent on every single session start and a wall of stale context crowds out what
+the agent is about to read for itself. Trimming is line-wise from the end, so
+the goal survives a tight budget and the oldest turn summaries are what fall
+off. Detail is pulled on demand with `store.py search` instead.
+
+Two rules it must not break. It **never fails**, because a traceback from a hook
+lands in the session's context. And it **never assumes the console is UTF-8**:
+on Windows the default is cp1252, real prompts contain real characters, and
+printing a rupee sign through an unconfigured stdout raises
+`UnicodeEncodeError` -- which is exactly how a hook that worked in testing
+breaks on a Tuesday.
+
+This hook is the one exception to "every hook is async". An async hook's stdout
+is nobody's input, so it has to be synchronous to be read at all.
+
+### Naming a session after its repository, not its subdirectory
+
+An agent does not stay in the directory it started in. A session working inside
+`Voice_Transcriber/platform` used to appear on the board as **`platform`**,
+because the row was labelled and keyed by `basename(cwd)` -- so the same agent
+showed up under whichever subdirectory it happened to be standing in, and moving
+between subdirectories split one session across two rows, each going stale in
+turn.
+
+`agent_alert.project_root` walks up to the nearest `.git` (or `.hg`, or `.svn`)
+and the key is built from that, so one session keeps one row under the name its
+human knows it by. A nested checkout still wins over its parent, because the
+nearest marker is found first -- that inner repository really is the project.
+
+## Tests
+
+```
+python -m unittest discover -s tests -t .
+```
+
+Ninety-three of them, and no test dependency: they are plain `unittest` cases,
+so they run under `pytest` too if you prefer its output. Each one gets a
+throwaway `LOCALAPPDATA` via `tests/_env.Sandbox`, so a test run never touches
+the real event log or database.
+
+They are also what this project's own milestone checks execute, which is the
+point: `python goals.py verify` passes only because the suite does.
+
 ## The dashboard
 
 **Dashboard…** in the menu opens the full window. The Scorecard is still there
@@ -641,6 +780,11 @@ the toggle has no effect rather than blanking the window.
 | `agent_alert.py` | The per-project alert mailbox agents write to |
 | `events.py` | Append-only activity log; reads token usage from transcripts |
 | `store.py` | The indexed store: drains the log into SQLite, holds memory and goals |
+| `observe.py` | Turns a finished turn's transcript into an observation |
+| `goals.py` | `GOAL.md` in, milestones out; verifies them and writes status back |
+| `context.py` | The orientation block a session starts with |
+| `GOAL.md` | This project's own end goal and milestone board |
+| `tests/` | The suite the milestone checks run |
 | `stats.py` | Aggregates the log into metrics, task records and pricing |
 | `notify.py` | CLI entry point agent hooks call |
 | `dashboard.py` | The Qt dashboard: overview, tasks, team, tile, deploy |

@@ -46,7 +46,7 @@ import events
 
 DB_PATH = os.path.join(events.ROOT, "store.db")
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3
 
 # Statuses a milestone moves through. "done" is only ever set from evidence --
 # see the note on `check_cmd` in the schema.
@@ -66,8 +66,16 @@ create table if not exists meta (
 -- ----------------------------------------------------------------- events --
 -- A mirror of events.jsonl, indexed. `off` is the byte offset of the line it
 -- came from, which is what makes a re-ingest idempotent.
+--
+-- `gen` is the log generation, and it is not optional. A byte offset only
+-- identifies a line within one life of the file: once the log is rotated or
+-- truncated, offsets start again at zero, and a key of `off` alone would have
+-- new lines quietly overwriting unrelated old rows while the rest of the old
+-- generation lingered beside them. The generation counter bumps on truncation,
+-- so both histories coexist and neither is corrupted.
 create table if not exists events (
-  off     integer primary key,
+  gen     integer not null default 0,
+  off     integer not null,
   t       real    not null,
   ev      text    not null,
   sid     text    not null default '',
@@ -79,7 +87,8 @@ create table if not exists events (
   tok_cr  integer not null default 0,
   model   text    not null default '',
   tools   integer not null default 0,
-  msg     text    not null default ''
+  msg     text    not null default '',
+  primary key (gen, off)
 );
 
 create index if not exists events_t_idx    on events (t);
@@ -165,18 +174,26 @@ create table if not exists goals (
 -- *asserted* by running a command is one an unattended run cannot talk itself
 -- into having finished. Where a criterion is genuinely unmechanisable,
 -- `acceptance` carries the prose and a human confirms it.
+-- `file_status` is what the GOAL.md checkbox said at the last sync, and it
+-- exists to settle one otherwise unanswerable question. When the file says
+-- pending and the database says done, either a human just unticked the box to
+-- reopen the work, or `verify` proved it finished and the file is simply
+-- stale -- and the right response is opposite in the two cases. Remembering
+-- what the file last said distinguishes them: a *change* in the file is a human
+-- editing it, and wins; an unchanged file leaves the verified status alone.
 create table if not exists milestones (
-  id         integer primary key autoincrement,
-  proj       text    not null,
-  ordinal    integer not null default 0,
-  title      text    not null,
-  acceptance text    not null default '',
-  check_cmd  text    not null default '',
-  status     text    not null default 'pending',
-  blocked_by text    not null default '',
-  evidence   text    not null default '',
-  created_at real    not null,
-  updated_at real    not null,
+  id          integer primary key autoincrement,
+  proj        text    not null,
+  ordinal     integer not null default 0,
+  title       text    not null,
+  acceptance  text    not null default '',
+  check_cmd   text    not null default '',
+  status      text    not null default 'pending',
+  file_status text    not null default '',
+  blocked_by  text    not null default '',
+  evidence    text    not null default '',
+  created_at  real    not null,
+  updated_at  real    not null,
   unique (proj, title)
 );
 
@@ -211,10 +228,47 @@ def connect(path: str = DB_PATH) -> sqlite3.Connection:
     # Durability is not worth a disk sync here: every row is derived from
     # events.jsonl, so the worst a crash costs is a re-ingest.
     conn.execute("pragma synchronous=normal")
+
+    found = int(conn.execute("pragma user_version").fetchone()[0] or 0)
+    if found and found < SCHEMA_VERSION:
+        _migrate(conn, found)
+
     conn.executescript(_SCHEMA)
     conn.execute("pragma user_version=%d" % SCHEMA_VERSION)
     conn.commit()
     return conn
+
+
+def _migrate(conn: sqlite3.Connection, found: int) -> None:
+    """Bring an older database forward.
+
+    ``events`` is only ever a projection of ``events.jsonl``, so the cheapest
+    correct migration for it is to drop it and let the next ingest rebuild it
+    from offset zero. The tables that are *not* derivable -- observations,
+    goals, milestones, decisions -- are never touched here, because losing one
+    of those would lose something the log cannot give back.
+    """
+    if found < 2:
+        # v1 keyed events on `off` alone, which collides across log
+        # generations. Rebuild under the new key.
+        conn.execute("drop table if exists events")
+        conn.execute(
+            "delete from meta where key in "
+            "('ingest_offset', 'ingest_size', 'ingest_gen')"
+        )
+    if found < 3:
+        # Milestones are not derivable from anything, so this one is an ALTER
+        # rather than a rebuild. An existing row gets '' -- unknown -- which
+        # reads as "the file changed" on the next sync and lets GOAL.md win
+        # once, which is the safe direction for a one-off migration.
+        try:
+            conn.execute(
+                "alter table milestones add column file_status text "
+                "not null default ''"
+            )
+        except sqlite3.OperationalError:
+            pass    # already present, or the table does not exist yet
+    conn.commit()
 
 
 def _meta_get(conn: sqlite3.Connection, key: str, default: str = "") -> str:
@@ -246,20 +300,26 @@ def ingest(conn: sqlite3.Connection | None = None, path: str = "") -> dict:
     try:
         start = int(_meta_get(conn, "ingest_offset", "0") or 0)
         seen_size = int(_meta_get(conn, "ingest_size", "0") or 0)
+        gen = int(_meta_get(conn, "ingest_gen", "0") or 0)
         try:
             size = os.path.getsize(log_path)
         except OSError:
-            return {"read": 0, "inserted": 0, "from": start, "to": start}
+            return {"read": 0, "inserted": 0, "from": start, "to": start,
+                    "gen": gen}
 
         # A log that shrank was rotated or truncated, so the old offset points
-        # into different content. Start over rather than ingest nonsense.
+        # into different content. Start over -- under a new generation, so the
+        # restarted offsets cannot collide with the rows already stored.
         if size < seen_size:
             start = 0
+            gen += 1
+            _meta_set(conn, "ingest_gen", gen)
 
         if size <= start:
             _meta_set(conn, "ingest_size", size)
             conn.commit()
-            return {"read": 0, "inserted": 0, "from": start, "to": start}
+            return {"read": 0, "inserted": 0, "from": start, "to": start,
+                    "gen": gen}
 
         with open(log_path, "rb") as fh:
             fh.seek(start)
@@ -287,6 +347,7 @@ def ingest(conn: sqlite3.Connection | None = None, path: str = "") -> dict:
                 continue
             tok = rec.get("tok") or {}
             rows.append((
+                gen,
                 off,
                 float(rec.get("t") or 0.0),
                 str(rec.get("ev") or ""),
@@ -304,16 +365,17 @@ def ingest(conn: sqlite3.Connection | None = None, path: str = "") -> dict:
 
         conn.executemany(
             "insert or replace into events "
-            "(off, t, ev, sid, proj, cwd, tok_in, tok_out, tok_cc, tok_cr, "
-            " model, tools, msg) "
-            "values (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "(gen, off, t, ev, sid, proj, cwd, tok_in, tok_out, tok_cc, "
+            " tok_cr, model, tools, msg) "
+            "values (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             rows,
         )
         _meta_set(conn, "ingest_offset", end)
         _meta_set(conn, "ingest_size", size)
         _meta_set(conn, "ingest_at", round(time.time(), 3))
         conn.commit()
-        return {"read": read, "inserted": len(rows), "from": start, "to": end}
+        return {"read": read, "inserted": len(rows), "from": start,
+                "to": end, "gen": gen}
     finally:
         if own:
             conn.close()

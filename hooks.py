@@ -30,13 +30,20 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-# (hook event, notify.py action, what it is for)
+# (hook event, notify.py action, what it is for, run asynchronously)
+#
+# Everything that only *reports* runs async, so telemetry can never delay a
+# turn. SessionStart is the exception and must be synchronous: its job is to
+# print context for Claude Code to read back, and an async hook's stdout is
+# nobody's input. It stays cheap enough to afford -- a few indexed rows, no
+# network, no model call, and silence when the project has no history yet.
 HOOKS = (
-    ("UserPromptSubmit", "prompt", "a prompt was sent to the agent"),
-    ("PreToolUse", "working", "the agent resumed after being blocked"),
-    ("Notification", "needs-input", "the agent wants a permission or an answer"),
-    ("Stop", "done", "the agent finished a turn"),
-    ("SessionEnd", "end", "the session closed"),
+    ("SessionStart", "context", "a session started; inject project memory", False),
+    ("UserPromptSubmit", "prompt", "a prompt was sent to the agent", True),
+    ("PreToolUse", "working", "the agent resumed after being blocked", True),
+    ("Notification", "needs-input", "the agent wants a permission or an answer", True),
+    ("Stop", "done", "the agent finished a turn", True),
+    ("SessionEnd", "end", "the session closed", True),
 )
 
 TIMEOUT_SECONDS = 10
@@ -60,18 +67,16 @@ def _notify_command(action: str, python: str = "python", root: str = "") -> str:
     return f'{python} "{script}" {action}'
 
 
-def _entry(action: str, python: str, root: str) -> dict:
-    return {
-        "hooks": [
-            {
-                "type": "command",
-                "command": _notify_command(action, python, root),
-                "timeout": TIMEOUT_SECONDS,
-                # Never make the user wait on telemetry.
-                "async": True,
-            }
-        ]
+def _entry(action: str, python: str, root: str, is_async: bool = True) -> dict:
+    entry = {
+        "type": "command",
+        "command": _notify_command(action, python, root),
+        "timeout": TIMEOUT_SECONDS,
     }
+    if is_async:
+        # Never make the user wait on telemetry.
+        entry["async"] = True
+    return {"hooks": [entry]}
 
 
 def _read(path: str) -> dict:
@@ -101,7 +106,7 @@ def _is_ours(group: dict, root: str) -> bool:
 def install(
     scope: str = "user", python: str = "python", root: str = "", backup: bool = True
 ) -> dict:
-    """Write the five hooks. Returns a report; raises only on an unwritable file."""
+    """Write the hooks. Returns a report; raises only on an unwritable file."""
     root = root or HERE
     path = settings_path(scope)
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -118,7 +123,7 @@ def install(
         hooks = {}
     report = {"path": path, "added": [], "replaced": [], "kept_foreign": 0}
 
-    for event, action, _why in HOOKS:
+    for event, action, _why, is_async in HOOKS:
         groups = hooks.get(event)
         if not isinstance(groups, list):
             groups = []
@@ -127,7 +132,7 @@ def install(
         report["kept_foreign"] += len(foreign)
         (report["replaced"] if ours else report["added"]).append(event)
         # Ours goes last, so anything the user already had still runs first.
-        hooks[event] = foreign + [_entry(action, python, root)]
+        hooks[event] = foreign + [_entry(action, python, root, is_async)]
 
     settings["hooks"] = hooks
     tmp = path + ".tmp"
@@ -147,7 +152,7 @@ def uninstall(scope: str = "user", root: str = "") -> dict:
         return {"path": path, "removed": 0}
 
     removed = 0
-    for event, _action, _why in HOOKS:
+    for event, _action, _why, _async in HOOKS:
         groups = hooks.get(event)
         if not isinstance(groups, list):
             continue
@@ -170,13 +175,13 @@ def uninstall(scope: str = "user", root: str = "") -> dict:
 
 
 def status(scope: str = "user", root: str = "") -> dict:
-    """Which of the five are wired up, for the dashboard and the installer."""
+    """Which hooks are wired up, for the dashboard and the installer."""
     root = root or HERE
     path = settings_path(scope)
     hooks = _read(path).get("hooks")
     hooks = hooks if isinstance(hooks, dict) else {}
     present = {}
-    for event, action, _why in HOOKS:
+    for event, action, _why, is_async in HOOKS:
         groups = hooks.get(event) or []
         present[event] = any(
             isinstance(g, dict) and _is_ours(g, root) for g in groups
@@ -191,9 +196,9 @@ def status(scope: str = "user", root: str = "") -> dict:
 
 _USAGE = """usage: python hooks.py <install|uninstall|status> [--project] [--python EXE]
 
-  install     wire the five hooks into Claude Code's settings.json
+  install     wire the hooks into Claude Code's settings.json
   uninstall   remove them again (other hooks on those events are kept)
-  status      report which of the five are present
+  status      report which hooks are present
 
   --project   write to this project's .claude/settings.json instead of ~/.claude
   --python    the interpreter the hooks should call (default: python)
