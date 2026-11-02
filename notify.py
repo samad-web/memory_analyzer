@@ -246,17 +246,36 @@ def main(argv: list[str]) -> int:
 
     if action == "working":
         # PreToolUse. Its real job is to flip a blocked session back to working
-        # once the agent resumes. When already working and fresh, do nothing --
-        # no mailbox churn, no event. Otherwise this is a resume (the user just
-        # unblocked it), which is exactly what a reply-time measurement needs.
+        # once the agent resumes, and to record *when* you unblocked it, which
+        # is what the Scorecard measures your reply time from.
+        #
+        # The mailbox and the event log want different things here, so they are
+        # decided separately:
+        #
+        # * The mailbox is skipped while the row already says working and is
+        #   fresh -- the no-churn case this hook hits dozens of times a turn.
+        # * The event is only logged when a block is actually open. A `resume`
+        #   exists to pair with a `wait`, and `stats._pairings` discards one
+        #   that pairs with nothing, so an unpaired resume was never read by
+        #   anything. Writing them anyway made up 87% of the activity log
+        #   (4,606 of 5,279 events, against 62 waits), because a tool call
+        #   lasting over WORKING_FRESH_SECONDS slips past the freshness check.
+        #   That was affordable while the log only fed counters and is not now
+        #   that it is the substrate for memory and milestone inference.
         current = agent_alert.read_one(key)
+        blocked = current is not None and current.kind == agent_alert.NEEDS_INPUT
+
         if (
-            current is not None
+            not blocked
+            and current is not None
             and current.kind == agent_alert.WORKING
             and (time.time() - current.at) < WORKING_FRESH_SECONDS
         ):
             return 0
-        events.log("resume", sid, cwd, proj)
+
+        if blocked:
+            events.log("resume", sid, cwd, proj)
+
         agent_alert.write(
             agent_alert.WORKING, message, proj, key=key, sid=sid,
             cwd=cwd, hwnd=window_for(key, current),

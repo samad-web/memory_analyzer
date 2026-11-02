@@ -325,6 +325,69 @@ board stays out of shared screens when the tile does.
 Turn the tile line off with **Show stats line** in the menu; the Scorecard stays
 available regardless.
 
+### Only logging a resume that resumes something
+
+`PreToolUse` fires before every tool call, and the `working` action used to log
+a `resume` event whenever the session's mailbox row was more than eight seconds
+old. Any tool call slower than that -- a build, a test run, a subagent --
+slipped past the check, so the log filled with resumes that resumed nothing:
+**4,606 of 5,279 events, against 62 actual waits.** 87% of the file, and at most
+62 of those rows ever carried the signal they existed for.
+
+Nothing read them. A `resume` is only there to pair with a `wait`, and
+`stats._pairings` discards one that pairs with nothing. So the event is now
+written only when a block is genuinely open, while the mailbox write is decided
+separately on its own freshness rule -- the tile stays current, the log stops
+churning. Reply-time measurement is unchanged, because the one resume that
+matters is the one that still gets logged.
+
+It was affordable while the log only fed counters. It stopped being affordable
+when the log became the substrate for the store below.
+
+## The store
+
+`events.jsonl` is still the thing hooks write: one short line, appended, then
+the process exits. That contract is why a hook costs milliseconds and why a
+laptop on a train cannot stall the agent it measures, and `store.py` does not
+touch it.
+
+What `store.py` adds is a *reader*. It drains the log into SQLite from a
+watermark, so a query stops costing a full-file parse:
+
+```
+python store.py ingest          # drain the log into the database
+python store.py stats           # what is in there
+python store.py search QUERY    # full-text over observations
+python store.py brief [PROJECT] # the orientation blob for a session
+```
+
+The database sits beside the log, at
+`%LOCALAPPDATA%\SystemMonitorWidget\store.db`. It needs no new dependency: the
+stdlib `sqlite3` already ships FTS5.
+
+**Re-ingesting is free**, which is the property everything else leans on. The
+byte offset of each line is the primary key of `events`, so reading from an
+earlier watermark lands the same rows on the same keys rather than
+double-counting a turn -- the same bargain `sync.py` strikes upstream with
+`(device, task_key)`. A log that shrank is taken as rotated and read again from
+the top, and a torn final line is left behind the watermark for next time.
+
+Three tables exist for what comes next rather than what works today:
+
+| Table | Holds |
+| --- | --- |
+| `observations` | One row per finished turn: what it *did* -- files read and written, commands run, the prompt, a title and narrative. The log answers "how much"; this answers "what". |
+| `goals` / `milestones` | Where a project is *going*. A human writes the goal; an agent maintains the decomposition. |
+| `decisions` | Settled choices and their rationale, so they stop being re-litigated every session. |
+
+`observations` carries a `source` column -- `extract`, `llm` or `manual` --
+because the cheap deterministic tier and an opt-in summarisation tier should
+land in the same table and let retrieval ignore which produced a row.
+
+`milestones.check_cmd` is the load-bearing column: a milestone whose completion
+can be *asserted* by running a command is one an unattended run cannot talk
+itself into having finished.
+
 ## The dashboard
 
 **Dashboard…** in the menu opens the full window. The Scorecard is still there
@@ -577,6 +640,7 @@ the toggle has no effect rather than blanking the window.
 | `memory.py` | Working-set trimming for the Free memory action |
 | `agent_alert.py` | The per-project alert mailbox agents write to |
 | `events.py` | Append-only activity log; reads token usage from transcripts |
+| `store.py` | The indexed store: drains the log into SQLite, holds memory and goals |
 | `stats.py` | Aggregates the log into metrics, task records and pricing |
 | `notify.py` | CLI entry point agent hooks call |
 | `dashboard.py` | The Qt dashboard: overview, tasks, team, tile, deploy |
