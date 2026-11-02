@@ -13,7 +13,7 @@ import os
 import sys
 import unittest
 
-from ._env import Sandbox
+from ._env import PROJECT, Sandbox
 
 
 class NotifyCase(unittest.TestCase):
@@ -152,6 +152,54 @@ class ProjectIdentityTest(NotifyCase):
         deep = self.sb.path(*(["x"] * 40))
         os.makedirs(deep, exist_ok=True)
         self.assertIsInstance(self.alert.project_root(deep), str)
+
+
+class PayloadReadTest(unittest.TestCase):
+    """stdin must not be able to stall a hook.
+
+    ``stdin.read()`` returns when the writer closes the pipe. Claude Code does
+    close it, but a wrapper or a scheduled task may not, and SessionStart is
+    synchronous -- a block there is added to the start of every session.
+    """
+
+    def test_an_unclosed_pipe_does_not_block_the_hook(self):
+        import subprocess
+        import sys
+        import time
+
+        proc = subprocess.Popen(
+            [sys.executable, "notify.py", "context"],
+            cwd=PROJECT, stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        started = time.time()
+        try:
+            proc.wait(timeout=20)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            self.fail("the hook blocked on an unclosed stdin")
+        finally:
+            if proc.stdin is not None:
+                proc.stdin.close()
+        elapsed = time.time() - started
+        self.assertEqual(proc.returncode, 0)
+        # Generous: the bound is 2s, and this only needs to prove it is bounded.
+        self.assertLess(elapsed, 15.0, "took %.1fs" % elapsed)
+
+    def test_closed_stdin_is_read_normally(self):
+        import json as _json
+        import subprocess
+        import sys
+
+        payload = _json.dumps({"session_id": "x", "cwd": PROJECT,
+                               "prompt": "hello"})
+        out = subprocess.run(
+            [sys.executable, "-c",
+             "import sys, json; sys.path.insert(0, %r);"
+             "import notify; print(json.dumps(notify.read_payload()))" % PROJECT],
+            cwd=PROJECT, input=payload, capture_output=True, text=True,
+            timeout=30)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertEqual(_json.loads(out.stdout)["prompt"], "hello")
 
 
 class LifecycleTest(NotifyCase):

@@ -146,8 +146,47 @@ class TestCaptureTest(unittest.TestCase):
                          "7 passed")
 
     def test_pytest_failure_is_reported(self):
+        """pytest prints "1 failed, 6 passed". A passed-first pattern matches
+        the "6 passed" inside that and calls a broken run green, which is the
+        one way this field must never be wrong."""
         v = self.verdict("pytest tests/", PYTEST_FAIL)
-        self.assertIn("failed", v)
+        self.assertIn("1 failed", v)
+        self.assertNotEqual(v, "6 passed")
+
+    def test_no_runner_output_is_ever_read_as_a_pass(self):
+        """Across every shape of failing output, the verdict must not say
+        "passed" without also saying "failed"."""
+        failing = [
+            ("pytest", PYTEST_FAIL),
+            ("npm test", JEST_FAIL),
+            ("python -m unittest", "FAILED (failures=2)"),
+            ("go test ./...", "FAIL\tgithub.com/x/y\t0.01s"),
+            ("cargo test", "test result: FAILED. 3 passed; 2 failed"),
+            ("pytest", "=== 2 failed, 5 passed in 1.2s ==="),
+            ("python -m unittest", "Ran 4 tests\n\nFAILED (errors=1)"),
+        ]
+        for cmd, out in failing:
+            v = self.verdict(cmd, out)
+            self.assertTrue(
+                ("fail" in v.lower()) or ("unparsed" in v),
+                "%s -> %r must not read as a clean pass" % (cmd, v))
+
+    def test_go_summary_is_not_applied_to_other_runners(self):
+        """"ok 1 - something" from a TAP run, or "OK installed" from a package
+        manager, used to be read as a go-style pass."""
+        v = self.verdict("pytest", "ok 1 - set up fixtures\nok 2 - tore down")
+        self.assertNotEqual(v, "ok")
+        self.assertIn("unparsed", v)
+
+    def test_unittest_ok_still_reads_as_a_pass(self):
+        self.assertEqual(
+            self.verdict("python -m unittest discover", "Ran 9 tests\n\nOK"),
+            "ok")
+
+    def test_unittest_counted_line_is_preferred(self):
+        self.assertEqual(
+            self.verdict("python -m unittest", "=== 9 passed in 0.5s ==="),
+            "9 passed")
 
     def test_jest_failed_first_ordering(self):
         self.assertEqual(self.verdict("npm test", JEST_FAIL), "1 failed, 4 passed")

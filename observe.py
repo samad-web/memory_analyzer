@@ -57,19 +57,31 @@ TEST_PATTERNS = (
 )
 _TEST_RE = re.compile("|".join(TEST_PATTERNS), re.I)
 
-# Outcome lines the common runners print. First match wins, so the more
-# specific ones come first.
-_RESULT_RES = (
-    # pytest: "===== 5 passed, 1 failed in 2.31s ====="
-    re.compile(r"(\d+)\s+passed(?:,\s*(\d+)\s+failed)?", re.I),
-    # jest / vitest: "Tests: 1 failed, 4 passed, 5 total"
-    re.compile(r"(\d+)\s+failed,\s*(\d+)\s+passed", re.I),
-    # cargo: "test result: ok. 5 passed; 0 failed"
-    re.compile(r"test result:\s*(\w+)\.\s*(\d+)\s+passed;\s*(\d+)\s+failed", re.I),
-    # unittest: "OK" / "FAILED (failures=1)"
-    re.compile(r"^(OK|FAILED)\b", re.I | re.M),
-    # go: "ok   pkg  0.1s" / "FAIL  pkg"
-    re.compile(r"^(ok|FAIL)\s+\S+", re.I | re.M),
+# Outcome lines the common runners print.
+#
+# These are applied *per runner*, not all-against-everything, because the bare
+# ones are far too eager. `^(ok|FAIL)\s+\S+` is go's summary, and it also
+# matches "ok 1 - something" from a TAP run, "OK installed" from a package
+# manager, and any prose line starting with "ok". Trying every pattern on every
+# output produced a verdict of "ok" for a turn whose tests had not passed,
+# which is the one kind of wrong answer this field must never give.
+_PYTEST_RE = re.compile(r"(\d+)\s+passed(?:,\s*(\d+)\s+failed)?", re.I)
+_PYTEST_FAIL_RE = re.compile(r"(\d+)\s+failed(?:,\s*(\d+)\s+passed)?", re.I)
+_JEST_RE = re.compile(r"(\d+)\s+failed,\s*(\d+)\s+passed", re.I)
+_CARGO_RE = re.compile(
+    r"test result:\s*(\w+)\.\s*(\d+)\s+passed;\s*(\d+)\s+failed", re.I)
+_UNITTEST_RE = re.compile(r"^(OK|FAILED)\b", re.M)
+_GO_RE = re.compile(r"^(ok|FAIL)\s+\S+", re.M)
+
+# Which family a command belongs to, so only that family's patterns are tried.
+_RUNNERS = (
+    ("cargo", re.compile(r"\bcargo\s+test\b", re.I)),
+    ("go", re.compile(r"\bgo\s+test\b", re.I)),
+    ("jest", re.compile(r"\b(jest|vitest|mocha|npm\s+(run\s+)?test|yarn\s+test|"
+                        r"pnpm\s+(run\s+)?test|bun\s+test)\b", re.I)),
+    ("unittest", re.compile(r"\bunittest\b", re.I)),
+    ("pytest", re.compile(r"\b(pytest|tox|rspec|phpunit)\b", re.I)),
+    ("generic", re.compile(r"\b(mvn|gradle|dotnet\s+test|ctest)\b", re.I)),
 )
 
 _FAIL_WORDS = re.compile(
@@ -158,33 +170,66 @@ def _tests_from(command: str, output: str) -> str:
     The output is the tool result as the agent saw it, so this is reading the
     runner's own summary rather than re-running anything.
     """
-    if not _TEST_RE.search(_strip_prefix(command)):
+    cmd = _strip_prefix(command)
+    if not _TEST_RE.search(cmd):
         return ""
-    text = output or ""
-    tail = text[-4000:]
+    tail = (output or "")[-4000:]
 
-    m = _RESULT_RES[2].search(tail)          # cargo
-    if m:
-        return "cargo: %s (%s passed, %s failed)" % (m.group(1), m.group(2), m.group(3))
+    family = next((name for name, pattern in _RUNNERS if pattern.search(cmd)),
+                  "generic")
 
-    m = _RESULT_RES[1].search(tail)          # jest / vitest, failed-first
-    if m:
-        return "%s failed, %s passed" % (m.group(1), m.group(2))
+    if family == "cargo":
+        m = _CARGO_RE.search(tail)
+        if m:
+            return "cargo: %s (%s passed, %s failed)" % (
+                m.group(1), m.group(2), m.group(3))
 
-    m = _RESULT_RES[0].search(tail)          # pytest-style, passed-first
-    if m:
-        failed = m.group(2)
-        return "%s passed%s" % (m.group(1), (", %s failed" % failed) if failed else "")
+    elif family == "go":
+        m = _GO_RE.search(tail)
+        if m:
+            return m.group(1).lower()
 
-    m = _RESULT_RES[3].search(tail) or _RESULT_RES[4].search(tail)
-    if m:
-        return m.group(1).lower()
+    elif family in ("jest", "pytest", "generic", "unittest"):
+        verdict = _counted_summary(tail)
+        if verdict:
+            return verdict
+        if family == "unittest":
+            # No counted line, so fall back to the bare "OK" / "FAILED".
+            m = _UNITTEST_RE.search(tail)
+            if m:
+                return m.group(1).lower()
 
-    # A test ran but printed nothing we recognise. Say so rather than claim a
+    # A test ran but printed nothing this recognises. Say so rather than claim a
     # pass -- a silent "" here would read as "no tests", which is a different
     # and more dangerous statement.
     return "ran, outcome unparsed" + (" (output mentions failure)"
                                       if _FAIL_WORDS.search(tail) else "")
+
+
+def _counted_summary(tail: str) -> str:
+    """A counted pass/fail line, or "" if there is none.
+
+    **Failure is looked for first, and that ordering is the whole point.**
+    pytest prints "1 failed, 6 passed" when something broke and "7 passed" when
+    nothing did, so a passed-first pattern happily matches the "6 passed" inside
+    a failing summary and reports the run as green. Of all the ways this field
+    can be wrong, calling a failed suite passed is the one that matters.
+    """
+    m = _JEST_RE.search(tail)                      # "N failed, M passed"
+    if m:
+        return "%s failed, %s passed" % (m.group(1), m.group(2))
+
+    m = _PYTEST_FAIL_RE.search(tail)               # "N failed" (maybe + passed)
+    if m:
+        return "%s failed%s" % (
+            m.group(1), (", %s passed" % m.group(2)) if m.group(2) else "")
+
+    m = _PYTEST_RE.search(tail)                    # "N passed" (maybe + failed)
+    if m:
+        failed = m.group(2)
+        return "%s passed%s" % (
+            m.group(1), (", %s failed" % failed) if failed else "")
+    return ""
 
 
 def _result_text(block: dict) -> str:

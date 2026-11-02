@@ -208,26 +208,39 @@ def write(
     cwd: str = "",
     hwnd: int = 0,
 ) -> str:
-    """Record one session's state. Called from a hook, so it never raises."""
-    cwd = cwd or os.getcwd()
-    key = key or key_for(cwd, sid)
-    payload = {
-        "kind": kind if kind in (WORKING, NEEDS_INPUT, DONE) else DONE,
-        "message": (message or "").strip()[:120],
-        "source": (source or os.path.basename(cwd) or "agent").strip()[:40],
-        "at": time.time(),
-        "sid": (sid or "").strip()[:36],
-        "cwd": cwd,
-        "hwnd": int(hwnd or 0),
-    }
-    os.makedirs(ALERT_DIR, exist_ok=True)
-    path = os.path.join(ALERT_DIR, key + ".json")
-    # Write then replace, so the widget never reads a half-written file.
-    temp = path + ".tmp"
-    with open(temp, "w", encoding="utf-8") as fh:
-        json.dump(payload, fh)
-    os.replace(temp, path)
-    return path
+    """Record one session's state. Returns the path written, or "" on failure.
+
+    Called from a hook, so it must not raise -- and until now it only said so.
+    Every step here can fail in the ordinary course of events on Windows: the
+    directory may be unwritable, the disk full, or the temporary file held open
+    for a moment by a virus scanner, which makes ``os.replace`` fail. Any of
+    those used to propagate out of a hook whose job was to be invisible.
+
+    The caller logged its event first, so a failure here costs one row on the
+    board and nothing else.
+    """
+    try:
+        cwd = cwd or os.getcwd()
+        key = key or key_for(cwd, sid)
+        payload = {
+            "kind": kind if kind in (WORKING, NEEDS_INPUT, DONE) else DONE,
+            "message": (message or "").strip()[:120],
+            "source": (source or os.path.basename(cwd) or "agent").strip()[:40],
+            "at": time.time(),
+            "sid": (sid or "").strip()[:36],
+            "cwd": cwd,
+            "hwnd": int(hwnd or 0),
+        }
+        os.makedirs(ALERT_DIR, exist_ok=True)
+        path = os.path.join(ALERT_DIR, key + ".json")
+        # Write then replace, so the widget never reads a half-written file.
+        temp = path + ".tmp"
+        with open(temp, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh)
+        os.replace(temp, path)
+        return path
+    except Exception:  # noqa: BLE001 - a hook must never break its agent
+        return ""
 
 
 def _load(path: str, key: str) -> Alert | None:

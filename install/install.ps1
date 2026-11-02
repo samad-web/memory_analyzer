@@ -180,9 +180,13 @@ Write-Ok "team:   $TeamId"
 Write-Step "Copying agent files to $InstallDir"
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 
+# Must stay in step with REPORTER_FILES in deploy.py. The store, observer and
+# goal modules are required, not optional: the SessionStart hook runs
+# `notify.py context`, and a missing import there fails silently.
 $reporterFiles = @(
     'notify.py', 'events.py', 'agent_alert.py', 'identity.py',
-    'cloud.py', 'sync.py', 'stats.py', 'hooks.py', 'sensors.py', 'msi_ec.py'
+    'cloud.py', 'sync.py', 'stats.py', 'hooks.py', 'sensors.py', 'msi_ec.py',
+    'store.py', 'observe.py', 'goals.py', 'context.py'
 )
 $fullFiles = @(
     'widget.py', 'dashboard.py', 'charts.py', 'viz.py', 'webserver.py',

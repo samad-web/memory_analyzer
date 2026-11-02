@@ -45,6 +45,17 @@ REPORTER_FILES = (
     "hooks.py",
     "sensors.py",
     "msi_ec.py",
+    # The memory and goal layers. These are not optional extras for a reporter:
+    # hooks.py registers a SessionStart hook that runs `notify.py context`, and
+    # notify.py imports `observe` when a turn ends. Leave them out and the hook
+    # raises ImportError, which notify's top-level guard turns into a silent
+    # exit(0) -- a hook that does nothing, invisibly, on someone else's laptop.
+    # tests/test_deploy.py checks this list is import-closed so it cannot drift
+    # again.
+    "store.py",
+    "observe.py",
+    "goals.py",
+    "context.py",
 )
 
 # The tile and the dashboard on top of that.

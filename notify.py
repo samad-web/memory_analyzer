@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import threading
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -42,6 +43,11 @@ MESSAGE_KEYS = ("message", "prompt", "reason", "tool_name")
 
 # Within this many seconds, a fresh "working" state is left alone so the
 # per-tool PreToolUse hook does not rewrite the mailbox dozens of times a turn.
+# How long to wait for a payload on stdin before giving up on it. The
+# payload is already buffered by the time a hook runs, so this only ever
+# elapses when the invoker left the pipe open.
+PAYLOAD_TIMEOUT_SECONDS = 2.0
+
 WORKING_FRESH_SECONDS = 8
 
 # The Notification hook covers two unrelated things: a real question or
@@ -58,13 +64,43 @@ IDLE_NOTICES = (
 
 
 def read_payload() -> dict:
-    """The hook's JSON payload from stdin, or an empty dict."""
-    if sys.stdin is None or sys.stdin.isatty():
+    """The hook's JSON payload from stdin, or an empty dict.
+
+    The read is bounded, which matters more than it looks. ``stdin.read()``
+    returns when the writer closes the pipe, and Claude Code does close it --
+    but anything else that invokes this (a wrapper, a scheduled task, a human
+    at a shell) may not, and then the read blocks until the hook's own timeout
+    kills it. For the asynchronous hooks that would waste a process; for
+    ``SessionStart``, which has to be synchronous to have its output read at
+    all, it would add that delay to the start of every session.
+
+    So the read happens on a daemon thread and is given
+    ``PAYLOAD_TIMEOUT_SECONDS``. If nothing arrives the payload is simply
+    empty, and the caller falls back to the working directory -- which for a
+    hook is the session's own directory anyway, so the degradation is mild.
+    """
+    if sys.stdin is None:
         return {}
     try:
-        raw = sys.stdin.read(65536)
-    except OSError:
+        if sys.stdin.isatty():
+            return {}
+    except (OSError, ValueError):
         return {}
+
+    box: list[str] = []
+
+    def _slurp() -> None:
+        try:
+            box.append(sys.stdin.read(65536))
+        except Exception:  # noqa: BLE001 - closed, detached, or decoding oddly
+            pass
+
+    reader = threading.Thread(target=_slurp, daemon=True)
+    reader.start()
+    reader.join(PAYLOAD_TIMEOUT_SECONDS)
+    if not box:
+        return {}
+    raw = box[0]
     if not raw.strip():
         return {}
     try:
