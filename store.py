@@ -473,6 +473,128 @@ def recent_observations(
             conn.close()
 
 
+# How many items of each list a row carries to a UI. A turn may touch sixty
+# files and run sixty commands, and at 300 characters a command that is 18 KB
+# of JSON for one row -- measured: six rows came to 91 KB, so a hundred would be
+# a megabyte and a half down a phone tunnel. The views only ever show the first
+# dozen anyway, and the untruncated counts travel alongside so "and N more"
+# stays true.
+PAGE_FILES = 12
+PAGE_COMMANDS = 10
+PAGE_NARRATIVE = 200
+
+
+def _preview(text: str | None, limit: int) -> str:
+    text = str(text or "")
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _row_out(row: dict, full: bool = False) -> dict:
+    """An observation shaped for a UI: JSON columns parsed, times preformatted.
+
+    Both dashboards get the same shape from the same function, for the reason
+    the task view already works that way -- two renderers over one query cannot
+    quietly disagree about what a row means.
+
+    ``full`` keeps every list item, for the one row someone has selected.
+    """
+    out = dict(row)
+    for field in ("files_read", "files_modified", "commands", "tools"):
+        try:
+            value = json.loads(out.get(field) or "[]")
+            out[field] = value if isinstance(value, list) else []
+        except (TypeError, ValueError):
+            out[field] = []
+
+    # True counts before any trimming, so a view can say how much it is hiding.
+    out["files_read_n"] = len(out["files_read"])
+    out["files_modified_n"] = len(out["files_modified"])
+    out["commands_n"] = len(out["commands"])
+    out["tools_n"] = len(out["tools"])
+
+    if not full:
+        # A page row carries only what the table draws. Commands are the
+        # heaviest field and the table shows none of them, so they do not
+        # travel at all -- the detail pane fetches the row by id when someone
+        # selects it. Same idea as the progressive disclosure claude-mem uses,
+        # and it took the payload from 15 KB a row to under 1 KB.
+        out["files_read"] = out["files_read"][:PAGE_FILES]
+        out["files_modified"] = out["files_modified"][:PAGE_FILES]
+        out["commands"] = []
+        out["narrative"] = _preview(out.get("narrative"), PAGE_NARRATIVE)
+
+    out["when"] = time.strftime(
+        "%d %b %H:%M", time.localtime(out.get("ended_at") or 0))
+    out["files_modified_short"] = [
+        os.path.basename(p) for p in out["files_modified"][:6]
+    ]
+    return out
+
+
+def observation(oid: int, conn: sqlite3.Connection | None = None) -> dict:
+    """One observation, untrimmed. For a detail view."""
+    own = conn is None
+    conn = conn or connect()
+    try:
+        row = conn.execute(
+            "select * from observations where id=?", (int(oid),)).fetchone()
+        return _row_out(dict(row), full=True) if row else {}
+    except (TypeError, ValueError):
+        return {}
+    finally:
+        if own:
+            conn.close()
+
+
+def observations_page(
+    query: str = "",
+    proj: str = "",
+    kind: str = "",
+    limit: int = 100,
+    conn: sqlite3.Connection | None = None,
+) -> dict:
+    """Observations for the dashboards: searched when asked, recent otherwise.
+
+    An empty query is not an empty result -- it is "show me the latest", which
+    is what someone opening the tab wants before they have typed anything.
+    """
+    own = conn is None
+    conn = conn or connect()
+    try:
+        if query.strip():
+            rows = search(query, proj=proj, limit=limit, conn=conn)
+        else:
+            rows = recent_observations(proj=proj, limit=limit, conn=conn)
+        if kind:
+            rows = [r for r in rows if r.get("kind") == kind]
+
+        projects = [
+            r["proj"] for r in conn.execute(
+                "select proj, count(*) n from observations where proj<>'' "
+                "group by proj order by max(ended_at) desc")
+        ]
+        kinds = [
+            r["kind"] for r in conn.execute(
+                "select kind, count(*) n from observations where kind<>'' "
+                "group by kind order by n desc")
+        ]
+        total = conn.execute(
+            "select count(*) n from observations").fetchone()["n"]
+        return {
+            "rows": [_row_out(r) for r in rows],
+            "matched": len(rows),
+            "total": total,
+            "projects": projects,
+            "kinds": kinds,
+            "query": query,
+            "project": proj,
+            "kind": kind,
+        }
+    finally:
+        if own:
+            conn.close()
+
+
 def brief(proj: str, conn: sqlite3.Connection | None = None) -> dict:
     """Everything a session needs to orient itself in one project.
 

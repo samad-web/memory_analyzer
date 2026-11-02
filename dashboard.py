@@ -232,6 +232,7 @@ class DashboardWindow(QWidget):
         self.tabs = QTabWidget()
         self.tabs.addTab(self._build_overview(), "Overview")
         self.tabs.addTab(self._build_tasks(), "Tasks")
+        self.tabs.addTab(self._build_memory(), "Memory")
         self.tabs.addTab(self._build_team(), "Team")
         self.tabs.addTab(self._build_tile(), "Tile")
         self.tabs.addTab(self._build_deploy(), "Deploy")
@@ -529,6 +530,206 @@ class DashboardWindow(QWidget):
         self._flash_footer(f"Exported {len(self._rows)} tasks to {path}")
 
     # -- team tab ----------------------------------------------------------
+
+    MEMORY_COLUMNS = (("When", 110), ("Kind", 86), ("Project", 150),
+                      ("What happened", 420), ("Changed", 220), ("Tests", 130))
+
+    def _build_memory(self) -> QWidget:
+        """What past turns actually did, searchable.
+
+        The period and scope selectors above do not apply here, and that is
+        deliberate rather than an oversight. Memory is asked questions like
+        "when did I last touch the fan code", whose answer is whenever it was --
+        clamping it to the last 7 days would hide the row you are looking for.
+        The search box is the filter.
+        """
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(2, 8, 2, 4)
+        layout.setSpacing(8)
+
+        bar = QHBoxLayout()
+        self.memory_search = QLineEdit()
+        self.memory_search.setPlaceholderText(
+            "Search what past turns did — files, commands, decisions…"
+        )
+        self.memory_search.returnPressed.connect(self._fill_memory)
+        self.memory_search.textChanged.connect(self._fill_memory)
+        bar.addWidget(self.memory_search, 1)
+
+        self.memory_project = QComboBox()
+        self.memory_project.addItem("All projects", "")
+        self.memory_project.currentIndexChanged.connect(self._fill_memory)
+        bar.addWidget(self.memory_project)
+
+        self.memory_kind = QComboBox()
+        self.memory_kind.addItem("Any kind", "")
+        self.memory_kind.currentIndexChanged.connect(self._fill_memory)
+        bar.addWidget(self.memory_kind)
+
+        self.memory_count = _label("", viz.INK_MUTED, 10)
+        bar.addWidget(self.memory_count)
+        layout.addLayout(bar)
+
+        self.memory_table = QTableWidget(0, len(self.MEMORY_COLUMNS))
+        self.memory_table.setHorizontalHeaderLabels(
+            [c[0] for c in self.MEMORY_COLUMNS])
+        self.memory_table.verticalHeader().setVisible(False)
+        self.memory_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.memory_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.memory_table.setAlternatingRowColors(False)
+        self.memory_table.setShowGrid(False)
+        self.memory_table.setWordWrap(False)
+        for index, (_name, width) in enumerate(self.MEMORY_COLUMNS):
+            self.memory_table.setColumnWidth(index, width)
+        self.memory_table.horizontalHeader().setSectionResizeMode(
+            3, QHeaderView.Stretch)
+        self.memory_table.itemSelectionChanged.connect(self._show_memory_detail)
+        layout.addWidget(self.memory_table, 3)
+
+        self.memory_detail = QPlainTextEdit()
+        self.memory_detail.setReadOnly(True)
+        self.memory_detail.setPlaceholderText(
+            "Select a row to read the full narrative, the files and the commands."
+        )
+        self.memory_detail.setStyleSheet(
+            "QPlainTextEdit { background: %s; border: 1px solid %s; "
+            "border-radius: 6px; padding: 8px; }"
+            % (viz.SURFACE_RAISED, viz.BORDER)
+        )
+        self.memory_detail.setMaximumHeight(170)
+        layout.addWidget(self.memory_detail, 1)
+
+        self._memory_rows: list[dict] = []
+        self._memory_facets_done = False
+        return page
+
+    def _fill_memory(self) -> None:
+        """Re-run the query and repaint. Cheap enough to do on every keystroke:
+        it is an indexed FTS lookup against a local file."""
+        try:
+            import store
+
+            page = store.observations_page(
+                query=self.memory_search.text().strip(),
+                proj=self.memory_project.currentData() or "",
+                kind=self.memory_kind.currentData() or "",
+                limit=300,
+            )
+        except Exception as exc:  # noqa: BLE001 - a tab must not take the window down
+            self.memory_count.setText("memory unavailable")
+            self.memory_detail.setPlainText(str(exc))
+            return
+
+        # The dashboard repaints on a timer, so the row being read has to
+        # survive a refresh -- otherwise the selection jumps back to the top
+        # every few seconds, mid-sentence.
+        previous = None
+        selection = self.memory_table.selectionModel()
+        if selection and selection.selectedRows():
+            index = selection.selectedRows()[0].row()
+            if index < len(self._memory_rows):
+                previous = self._memory_rows[index].get("id")
+
+        self._memory_rows = page["rows"]
+        self._populate_memory_facets(page)
+
+        total, matched = page["total"], page["matched"]
+        if not total:
+            self.memory_count.setText("nothing recorded yet")
+        elif self.memory_search.text().strip():
+            self.memory_count.setText("%d of %d" % (matched, total))
+        else:
+            self.memory_count.setText("%d of %d, newest first" % (matched, total))
+
+        self.memory_table.setRowCount(len(self._memory_rows))
+        for index, row in enumerate(self._memory_rows):
+            tests = row.get("tests") or ""
+            # Red when a run failed, green when it passed, dim when it is only
+            # a note that something ran.
+            if "fail" in tests.lower():
+                tests_colour = viz.DANGER
+            elif tests:
+                tests_colour = viz.OK if "passed" in tests or tests == "ok" \
+                    else viz.INK_MUTED
+            else:
+                tests_colour = viz.INK_MUTED
+            cells = (
+                (row.get("when", ""), viz.INK_DIM),
+                (row.get("kind", ""), viz.INK_MUTED),
+                (row.get("proj", ""), viz.INK),
+                (row.get("title") or "— nothing recorded —", viz.INK),
+                (", ".join(row.get("files_modified_short") or []), viz.INK_DIM),
+                (tests, tests_colour),
+            )
+            for column, (text, colour) in enumerate(cells):
+                item = QTableWidgetItem(str(text))
+                item.setForeground(QColor(colour))
+                self.memory_table.setItem(index, column, item)
+
+        if not self._memory_rows:
+            self.memory_detail.setPlainText("")
+            return
+        restored = next(
+            (i for i, r in enumerate(self._memory_rows)
+             if previous is not None and r.get("id") == previous),
+            0,
+        )
+        self.memory_table.selectRow(restored)
+
+    def _populate_memory_facets(self, page: dict) -> None:
+        """Fill the project and kind pickers once, keeping the selection."""
+        if self._memory_facets_done:
+            return
+        for name in page.get("projects") or []:
+            self.memory_project.addItem(name, name)
+        for kind in page.get("kinds") or []:
+            self.memory_kind.addItem(kind, kind)
+        self._memory_facets_done = bool(page.get("projects"))
+
+    def _show_memory_detail(self) -> None:
+        rows = self.memory_table.selectionModel().selectedRows() \
+            if self.memory_table.selectionModel() else []
+        if not rows or rows[0].row() >= len(self._memory_rows):
+            return
+        row = self._memory_rows[rows[0].row()]
+        # The page row is trimmed for size; read the whole one now that a
+        # person is actually looking at it.
+        try:
+            import store
+
+            full = store.observation(row.get("id") or 0)
+            if full:
+                row = full
+        except Exception:  # noqa: BLE001
+            pass
+        parts = ["%s  ·  %s  ·  %s"
+                 % (row.get("when", ""), row.get("proj", ""), row.get("kind", ""))]
+        if row.get("title"):
+            parts += ["", row["title"]]
+        if row.get("narrative"):
+            parts += ["", row["narrative"]]
+        if row.get("tests"):
+            parts += ["", "tests: " + row["tests"]]
+        # The page trims these lists; the untrimmed counts come with it, so
+        # "and N more" reports what the turn really touched.
+        for label, field in (("changed", "files_modified"),
+                             ("read", "files_read")):
+            values = row.get(field) or []
+            total = row.get(field + "_n", len(values))
+            if values:
+                parts += ["", "%s (%d):" % (label, total)]
+                parts += ["  " + p for p in values]
+                if total > len(values):
+                    parts.append("  … and %d more" % (total - len(values)))
+        commands = row.get("commands") or []
+        commands_n = row.get("commands_n", len(commands))
+        if commands:
+            parts += ["", "commands (%d):" % commands_n]
+            parts += ["  $ " + c for c in commands]
+            if commands_n > len(commands):
+                parts.append("  … and %d more" % (commands_n - len(commands)))
+        self.memory_detail.setPlainText("\n".join(parts))
 
     def _build_team(self) -> QWidget:
         page = QScrollArea()
@@ -1420,6 +1621,7 @@ class DashboardWindow(QWidget):
         self.hours.set_buckets(stats.hourly_series(self._rows))
 
         self._fill_tasks()
+        self._fill_memory()
         self._fill_team()
         self._refresh_footer()
 

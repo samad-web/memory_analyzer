@@ -260,6 +260,38 @@ class DashboardServer:
             ],
         }
 
+    def memory_payload(
+        self, query: str = "", proj: str = "", kind: str = "",
+        limit: int = 100,
+    ) -> dict:
+        """What the Memory view shows: observations, searched or recent.
+
+        Not cached. The cache here is keyed on period and scope, and a memory
+        query is neither; caching per query string would fill it with
+        single-use entries. The query is an indexed FTS lookup against a local
+        file, so it is cheap enough to just run.
+        """
+        try:
+            import store
+
+            return store.observations_page(
+                query=query, proj=proj, kind=kind, limit=limit)
+        except Exception as exc:  # noqa: BLE001 - a view must not 500
+            return {"rows": [], "matched": 0, "total": 0, "projects": [],
+                    "kinds": [], "query": query, "project": proj,
+                    "kind": kind, "error": str(exc)}
+
+    def memory_detail_payload(self, oid: str) -> dict:
+        """One observation with nothing trimmed, for the detail pane."""
+        try:
+            import store
+
+            return {"row": store.observation(int(oid))}
+        except (TypeError, ValueError):
+            return {"row": {}, "error": "id must be a number"}
+        except Exception as exc:  # noqa: BLE001
+            return {"row": {}, "error": str(exc)}
+
     def team_payload(self) -> dict:
         cache = sync.read_cache()
         state = sync.status()
@@ -413,6 +445,19 @@ class _DashboardHandler(BaseHTTPRequestHandler):
             self._json(owner.team_payload())
         elif path == "/api/tile":
             self._json(owner.tile_payload())
+        elif path == "/api/memory":
+            params = urllib.parse.parse_qs(
+                urllib.parse.urlparse(self.path).query)
+
+            def one(name: str) -> str:
+                return (params.get(name) or [""])[0].strip()[:200]
+
+            oid = one("id")
+            if oid:
+                self._json(owner.memory_detail_payload(oid))
+            else:
+                self._json(owner.memory_payload(
+                    query=one("q"), proj=one("project"), kind=one("kind")))
         elif path == "/api/meta":
             self._json(
                 {

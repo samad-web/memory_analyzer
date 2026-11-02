@@ -114,6 +114,48 @@ def _clip(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
+# Prompts the harness submits on its own behalf. They arrive through
+# UserPromptSubmit exactly like a typed prompt, so they are logged like one --
+# and then read back as the name of a task, which is how an observation ends up
+# titled "<task-notification> <task-id>bbr9fbjp0". None of them is a human
+# asking for something, so none of them should name a turn.
+_MACHINE_PROMPT = re.compile(
+    r"^\s*(<task-notification|<system-reminder|<command-name|<local-command|"
+    r"<pasted_content|\[Artifact comment sent to Claude\]|"
+    r"<user-prompt-submit-hook)",
+    re.I,
+)
+
+
+def clean_prompt(prompt: str) -> str:
+    """The human's own words, or "" when the prompt was the harness talking."""
+    text = " ".join(str(prompt or "").split())
+    if not text or _MACHINE_PROMPT.match(text):
+        return ""
+    return text
+
+
+def title_for(prompt: str, narrative: str, modified: list) -> str:
+    """What to call this turn.
+
+    The human's prompt first, because they said why they asked. Failing that
+    the agent's own closing sentence, and failing that the files it touched --
+    anything rather than an empty row, which is what the Tasks view already
+    shows for turns recorded before prompts were logged.
+    """
+    text = clean_prompt(prompt)
+    if text:
+        return _clip(text, MAX_TITLE)
+    first = re.split(r"(?<=[.!?])\s", (narrative or "").strip(), maxsplit=1)[0]
+    if first.strip():
+        return _clip(first, MAX_TITLE)
+    if modified:
+        names = ", ".join(os.path.basename(p) for p in modified[:3])
+        more = "" if len(modified) <= 3 else " +%d" % (len(modified) - 3)
+        return _clip("changed " + names + more, MAX_TITLE)
+    return ""
+
+
 def _strip_prefix(cmd: str) -> str:
     """Drop a leading ``cd ... &&`` so a test command is still recognisable."""
     return re.sub(r"^\s*cd\s+[^&;|]+(&&|;)\s*", "", cmd or "").strip()
@@ -460,12 +502,13 @@ def record(
                 "values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     sid, proj, cwd or fields["cwd"], started_at, ended_at or now,
-                    classify(prompt, fields["files_modified"],
+                    classify(clean_prompt(prompt), fields["files_modified"],
                              fields["files_read"], fields["tests"]),
-                    _clip(prompt, MAX_TITLE),
+                    title_for(prompt, fields["narrative"],
+                              fields["files_modified"]),
                     fields["narrative"],
                     fields["facts"],
-                    _clip(prompt, events.MAX_MSG_CHARS),
+                    _clip(clean_prompt(prompt), events.MAX_MSG_CHARS),
                     json.dumps(fields["files_read"]),
                     json.dumps(fields["files_modified"]),
                     json.dumps(fields["commands"]),

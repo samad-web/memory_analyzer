@@ -35,6 +35,7 @@
 <nav class="tabs" role="tablist">
   <button role="tab" data-tab="overview" aria-selected="true">Overview</button>
   <button role="tab" data-tab="tasks" aria-selected="false">Tasks</button>
+  <button role="tab" data-tab="memory" aria-selected="false">Memory</button>
   <button role="tab" data-tab="team" aria-selected="false">Team</button>
   <button role="tab" data-tab="tile" aria-selected="false">Tile</button>
 </nav>
@@ -104,6 +105,42 @@
         <tbody></tbody>
       </table>
     </div>
+  </div>
+</section>
+
+<!-- -------------------------------------------------------------- memory -->
+<!-- The period and scope selectors above do not apply here. Memory is asked
+     "when did I last touch the fan code", and the answer is whenever it was;
+     clamping it to a window would hide the row being looked for. -->
+<section id="tab-memory" class="tab-panel" role="tabpanel" hidden>
+  <div class="card">
+    <div class="card-head">
+      <h2>What past turns did</h2>
+      <input type="search" id="memory-search"
+             placeholder="Search files, commands, decisions, narratives…">
+      <select id="memory-project" class="ghost tiny"></select>
+      <select id="memory-kind" class="ghost tiny"></select>
+      <span class="card-note" id="memory-count"></span>
+    </div>
+    <div class="table-scroll">
+      <table class="tasks" id="memory-table">
+        <thead>
+          <tr>
+            <th>When</th>
+            <th>Kind</th>
+            <th>Project</th>
+            <th>What happened</th>
+            <th>Changed</th>
+            <th>Tests</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+  <div class="card" id="memory-detail-card" hidden>
+    <div class="card-head"><h2 id="memory-detail-title">Detail</h2></div>
+    <div id="memory-detail"></div>
   </div>
 </section>
 

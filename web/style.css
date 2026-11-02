@@ -397,3 +397,28 @@ footer {
 @media (prefers-reduced-motion: reduce) {
   .bar { transition: none; }
 }
+
+/* ------------------------------------------------------------------ memory */
+/* The detail pane under the memory table. Lists stay monospaced because every
+   value in them is a path or a command, where alignment is what makes a long
+   list scannable. */
+#memory-detail .memory-group { margin: 14px 0 0; }
+#memory-detail .memory-group h3 {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+#memory-detail .memory-group ul { margin: 0; padding-left: 16px; }
+#memory-detail .memory-group li { line-height: 1.55; word-break: break-all; }
+#memory-detail .memory-group li.none { color: var(--ink-muted); font-style: italic; }
+#memory-detail .memory-narrative {
+  margin: 8px 0 0;
+  line-height: 1.6;
+  color: var(--ink);
+}
+#memory-table tbody tr { cursor: pointer; }
+#memory-table tbody tr.selected { background: var(--surface-raised); }
+.card-head select.tiny { max-width: 190px; }

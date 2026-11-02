@@ -23,6 +23,8 @@ const state = {
   summary: null,
   team: null,
   tile: null,
+  memory: null,
+  memorySelected: 0,
   token: new URLSearchParams(location.search).get('token') || '',
 };
 
@@ -741,6 +743,137 @@ async function loadTasks() {
   applyTaskFilter();
 }
 
+/* ---------------------------------------------------------------- memory */
+
+/* Colour follows the board's own vocabulary: amber already means "this needs
+ * you" on the tile, so a failed run borrows it. There is no red in the
+ * palette on purpose. */
+function testColour(tests) {
+  const text = String(tests || '').toLowerCase();
+  if (!text) return '';
+  if (text.includes('fail')) return css('--status-needs-input');
+  if (text.includes('passed') || text === 'ok') return css('--status-done');
+  return '';
+}
+
+function fillSelect(node, values, allLabel, current) {
+  const wanted = current ?? node.value ?? '';
+  node.replaceChildren(
+    el('option', { value: '', text: allLabel }),
+    ...values.map((v) => el('option', { value: v, text: v })),
+  );
+  node.value = values.includes(wanted) ? wanted : '';
+}
+
+function renderMemory(data) {
+  fillSelect($('#memory-project'), data.projects || [], 'All projects', data.project);
+  fillSelect($('#memory-kind'), data.kinds || [], 'Any kind', data.kind);
+
+  const rows = data.rows || [];
+  const body = $('#memory-table tbody');
+  body.replaceChildren(...rows.map((row, index) => {
+    const colour = testColour(row.tests);
+    const node = el('tr', {
+      class: index === state.memorySelected ? 'selected' : '',
+      onclick: () => { state.memorySelected = index; renderMemory(data); },
+    },
+      el('td', { class: 'mono', text: row.when }),
+      el('td', { text: row.kind || '' }),
+      el('td', { text: row.proj || '' }),
+      el('td', {
+        class: `prompt${row.title ? '' : ' none'}`,
+        title: row.title || '',
+        text: row.title || '— nothing recorded —',
+      }),
+      el('td', { class: 'mono', text: (row.files_modified_short || []).join(', ') }),
+      el('td', {
+        class: 'mono',
+        style: colour ? `color:${colour}` : '',
+        text: row.tests || '',
+      }),
+    );
+    return node;
+  }));
+
+  const count = $('#memory-count');
+  if (!data.total) count.textContent = 'nothing recorded yet';
+  else if (data.query) count.textContent = `${data.matched} of ${data.total}`;
+  else count.textContent = `${data.matched} of ${data.total}, newest first`;
+
+  showMemoryDetail(rows[state.memorySelected]);
+}
+
+/* A page row carries only what the table draws, so the detail pane asks for
+ * the whole observation by id. Rendered from the trimmed row first so the pane
+ * never sits blank while that round trip happens. */
+async function showMemoryDetail(row) {
+  if (!row) { renderMemoryDetail(null); return; }
+  renderMemoryDetail(row);
+  const wanted = row.id;
+  try {
+    const data = await api(`/api/memory?id=${encodeURIComponent(wanted)}`);
+    /* Ignore a reply for a row that is no longer the selected one. */
+    const current = (state.memory?.rows || [])[state.memorySelected];
+    if (data.row && data.row.id === wanted && current && current.id === wanted) {
+      renderMemoryDetail(data.row);
+    }
+  } catch (error) {
+    /* The trimmed row is already on screen; leave it. */
+  }
+}
+
+function renderMemoryDetail(row) {
+  const card = $('#memory-detail-card');
+  const host = $('#memory-detail');
+  if (!row) {
+    card.hidden = true;
+    host.replaceChildren();
+    return;
+  }
+  card.hidden = false;
+  $('#memory-detail-title').textContent = row.title || 'Detail';
+
+  /* The list payload is trimmed to keep a page of rows small; `total` is the
+   * untrimmed count that came with it, so this says how much is hidden. */
+  const list = (label, values, total, prefix = '') => {
+    if (!values || !values.length) return null;
+    const count = total ?? values.length;
+    return el('div', { class: 'memory-group' },
+      el('h3', { text: `${label} (${count})` }),
+      el('ul', {}, ...values.map((v) => el('li', { class: 'mono', text: prefix + v })),
+        count > values.length
+          ? el('li', { class: 'none', text: `… and ${count - values.length} more` })
+          : null),
+    );
+  };
+
+  host.replaceChildren(
+    el('p', { class: 'card-note', text: `${row.when} · ${row.proj} · ${row.kind}` }),
+    row.narrative ? el('p', { class: 'memory-narrative', text: row.narrative }) : null,
+    row.tests
+      ? el('p', {
+          class: 'mono',
+          style: testColour(row.tests) ? `color:${testColour(row.tests)}` : '',
+          text: `tests: ${row.tests}`,
+        })
+      : null,
+    list('changed', row.files_modified, row.files_modified_n),
+    list('read', row.files_read, row.files_read_n),
+    list('commands', row.commands, row.commands_n, '$ '),
+  );
+}
+
+async function loadMemory() {
+  const params = new URLSearchParams({
+    q: $('#memory-search').value || '',
+    project: $('#memory-project').value || '',
+    kind: $('#memory-kind').value || '',
+  });
+  const data = await api(`/api/memory?${params.toString()}`);
+  state.memory = data;
+  renderMemory(data);
+}
+
 async function loadTeam() {
   const data = await api('/api/team');
   state.team = data;
@@ -764,6 +897,7 @@ async function refresh() {
      * footer reads its totals whichever tab is open. */
     await loadOverview();
     if (state.tab === 'tasks') await loadTasks();
+    if (state.tab === 'memory') await loadMemory();
     if (state.tab === 'team') await loadTeam();
     if (state.tab === 'tile') await loadTile();
   } catch (error) {
@@ -802,6 +936,20 @@ function init() {
   $$('.tabs button').forEach((button) => {
     button.addEventListener('click', () => showTab(button.dataset.tab));
   });
+  let memoryTimer = null;
+  const memoryReload = () => {
+    clearTimeout(memoryTimer);
+    memoryTimer = setTimeout(() => {
+      state.memorySelected = 0;
+      loadMemory().catch((error) => {
+        $('#memory-count').textContent = `Could not search: ${error.message}`;
+      });
+    }, 150);
+  };
+  $('#memory-search').addEventListener('input', memoryReload);
+  $('#memory-project').addEventListener('change', memoryReload);
+  $('#memory-kind').addEventListener('change', memoryReload);
+
   $$('[data-table-toggle]').forEach((button) => {
     button.addEventListener('click', () => {
       const target = $(`#${button.dataset.tableToggle}`);

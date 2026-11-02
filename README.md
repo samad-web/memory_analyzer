@@ -527,6 +527,49 @@ the real event log or database.
 They are also what this project's own milestone checks execute, which is the
 point: `python goals.py verify` passes only because the suite does.
 
+## The Memory tab
+
+**Dashboard… → Memory**, and the same view in the web dashboard, make the
+observations searchable: a table of what past turns did, and a pane under it
+with the full narrative, every file and every command.
+
+```
+┌─ Memory ──────────────────────────────────────────────────────────────┐
+│ [search files, commands, decisions…]  [All projects▾] [Any kind▾] 6/6 │
+├───────────────────────────────────────────────────────────────────────┤
+│ 02 Nov 13:22  bugfix   memory_analyzer  fix the fan divisor           │
+│                                         msi_ec.py          7 passed   │
+│ 02 Nov 12:40  feature  rdinterlocks     add the quotation flow        │
+└───────────────────────────────────────────────────────────────────────┘
+```
+
+The period and scope selectors above deliberately do not apply. Memory gets
+asked "when did I last touch the fan code", and the answer is whenever it was;
+clamping it to the last 7 days would hide the row being looked for. The search
+box is the filter.
+
+A failing test run is drawn in the amber that already means "this needs you" on
+the tile. The palette has no red in it on purpose, so a failure borrows the
+colour the board already uses for attention rather than introducing a ninth hue.
+
+### Why a row is smaller than the thing it describes
+
+Both dashboards read one function, `store.observations_page`, for the same
+reason the Tasks view already works that way: two renderers over one query
+cannot quietly disagree about what a row means.
+
+That query returns *less* than it has. A turn can touch sixty files and run
+sixty commands, and at 300 characters a command that was **15 KB of JSON per
+row** -- measured at 91 KB for six rows, so a hundred would have been a
+megabyte and a half down a phone tunnel. The table draws no commands at all, so
+a page row carries none of them; the narrative travels as a 200-character
+preview; the file lists stop at twelve. What does travel is the *untrimmed
+count* of each, which is what lets the detail pane say "and 28 more" honestly.
+
+Selecting a row then fetches that one observation whole, from `store` directly
+in Qt and from `/api/memory?id=` on the web. A page row is now **2.4 KB instead
+of 15 KB**, and the detail is complete when someone is actually reading it.
+
 ## The dashboard
 
 **Dashboard…** in the menu opens the full window. The Scorecard is still there
@@ -549,11 +592,12 @@ as a quick read-only glance; this is the one you work in.
 └───────────────────────────────────────────────────────────────┘
 ```
 
-Five tabs:
+Six tabs:
 
 | Tab | What it is for |
 | --- | --- |
 | **Overview** | Headline figures, the daily token trend, the split by model, the ranking by project, and what hour of the day the work happens. |
+| **Memory** | What past turns did -- files, commands, test outcomes -- searchable. |
 | **Tasks** | Every task as a row -- the prompt it started from, how long it took, how long it waited on you, what it burnt. Sortable, filterable, exports to CSV. |
 | **Team** | One card per laptop: online or not, who is working or blocked right now, and how hot their machine is running. |
 | **Tile** | The tile's own settings, as live controls. |

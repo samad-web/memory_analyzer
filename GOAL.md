@@ -39,8 +39,9 @@ bottleneck; direction is.
       acceptance: a fresh session is told the goal, the live milestone and the
                   last few turns, inside a character budget
       check: python -m unittest tests.test_context
-- [ ] Memory tab in the dashboard
+- [x] Memory tab in the dashboard
       acceptance: observations are searchable from the Qt and web dashboards
+      check: python -m unittest tests.test_memory
 - [ ] MCP server over the store
       acceptance: an agent can search its own history mid-turn, not only at
                   session start
