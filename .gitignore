@@ -1,0 +1,27 @@
+# Byte-compiled
+__pycache__/
+*.py[cod]
+*.pyd
+
+# Runtime state, not source. config.json holds this laptop's window position
+# and, once the web dashboard is bound wider than localhost, a generated
+# access token. config.example.json carries the defaults instead.
+config.json
+
+# Local databases and logs, if anyone points them at the working tree. The
+# real ones live in %LOCALAPPDATA%\SystemMonitorWidget.
+*.db
+*.db-wal
+*.db-shm
+*.jsonl
+
+# Build output from deploy.py
+bundle/
+dist/
+build/
+
+# Environments and editors
+.venv/
+venv/
+.vscode/
+.idea/

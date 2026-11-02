@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Dashboard</title>
+<!-- theme.css is generated from viz.py, so the palette has one home. -->
+<link rel="stylesheet" href="theme.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true"></span>
+    <h1>Agent Dashboard</h1>
+    <span class="brand-note" id="meta-note"></span>
+  </div>
+
+  <!-- Filters in one row above the content, per the interaction spec. -->
+  <div class="filters">
+    <div class="segmented" role="group" aria-label="Time range">
+      <button data-period="0">Today</button>
+      <button data-period="7" class="on">7 days</button>
+      <button data-period="30">30 days</button>
+    </div>
+    <div class="segmented" role="group" aria-label="Scope">
+      <button data-scope="me" class="on">This laptop</button>
+      <button data-scope="team">Team</button>
+    </div>
+    <button id="sync-btn" class="ghost">Sync now</button>
+  </div>
+</header>
+
+<nav class="tabs" role="tablist">
+  <button role="tab" data-tab="overview" aria-selected="true">Overview</button>
+  <button role="tab" data-tab="tasks" aria-selected="false">Tasks</button>
+  <button role="tab" data-tab="team" aria-selected="false">Team</button>
+  <button role="tab" data-tab="tile" aria-selected="false">Tile</button>
+</nav>
+
+<main>
+
+<!-- ------------------------------------------------------------ overview -->
+<section id="tab-overview" class="tab-panel" role="tabpanel">
+  <div class="tiles" id="stat-tiles"></div>
+
+  <div class="card">
+    <div class="card-head">
+      <h2 id="trend-title">Tokens per day</h2>
+      <p class="card-note" id="trend-note"></p>
+    </div>
+    <div class="chart" id="trend-chart"></div>
+  </div>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-head"><h2>Tokens by model</h2></div>
+      <div class="chart donut-wrap" id="model-chart"></div>
+    </div>
+    <div class="card">
+      <div class="card-head">
+        <h2>Tokens by project</h2>
+        <button class="ghost tiny" data-table-toggle="project-table">Table</button>
+      </div>
+      <div class="chart" id="project-chart"></div>
+      <div class="table-view" id="project-table" hidden></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <h2>When the work happens</h2>
+      <p class="card-note">Tokens by hour of day, across the window</p>
+    </div>
+    <div class="chart" id="hour-chart"></div>
+  </div>
+</section>
+
+<!-- --------------------------------------------------------------- tasks -->
+<section id="tab-tasks" class="tab-panel" role="tabpanel" hidden>
+  <div class="card">
+    <div class="card-head">
+      <h2>Every task</h2>
+      <input type="search" id="task-filter" placeholder="Filter by project, member, model or words in the task…">
+      <span class="card-note" id="task-count"></span>
+    </div>
+    <div class="table-scroll">
+      <table class="tasks" id="task-table">
+        <thead>
+          <tr>
+            <th data-sort="ended_at" class="sorted-desc">Finished</th>
+            <th data-sort="member" class="col-member">Member</th>
+            <th data-sort="project">Project</th>
+            <th data-sort="prompt">Task</th>
+            <th data-sort="duration_s" class="num">Took</th>
+            <th data-sort="blocked_h" class="num">Reply</th>
+            <th data-sort="tokens" class="num">Tokens</th>
+            <th data-sort="cost" class="num">Cost</th>
+            <th data-sort="tools" class="num">Tools</th>
+            <th data-sort="model">Model</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ---------------------------------------------------------------- team -->
+<section id="tab-team" class="tab-panel" role="tabpanel" hidden>
+  <p class="banner" id="team-banner"></p>
+  <div class="tiles" id="team-tiles"></div>
+  <div class="card">
+    <div class="card-head">
+      <h2>Tokens by member</h2>
+      <button class="ghost tiny" data-table-toggle="member-table">Table</button>
+    </div>
+    <div class="chart" id="member-chart"></div>
+    <div class="table-view" id="member-table" hidden></div>
+  </div>
+  <div id="fleet"></div>
+</section>
+
+<!-- ---------------------------------------------------------------- tile -->
+<section id="tab-tile" class="tab-panel" role="tabpanel" hidden>
+  <p class="banner" id="tile-banner"></p>
+  <div class="card">
+    <div class="card-head"><h2>Appearance</h2></div>
+    <div class="controls" id="tile-appearance"></div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>Behaviour</h2></div>
+    <div class="controls" id="tile-behaviour"></div>
+  </div>
+</section>
+
+</main>
+
+<footer id="footer"></footer>
+<div id="toast" class="toast" hidden></div>
+
+<script src="app.js"></script>
+</body>
+</html>
