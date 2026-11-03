@@ -56,6 +56,7 @@ REPORTER_FILES = (
     "observe.py",
     "goals.py",
     "context.py",
+    "mcp_server.py",
 )
 
 # The tile and the dashboard on top of that.

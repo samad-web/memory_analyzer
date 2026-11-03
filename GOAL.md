@@ -42,9 +42,10 @@ bottleneck; direction is.
 - [x] Memory tab in the dashboard
       acceptance: observations are searchable from the Qt and web dashboards
       check: python -m unittest tests.test_memory
-- [ ] MCP server over the store
+- [x] MCP server over the store
       acceptance: an agent can search its own history mid-turn, not only at
                   session start
+      check: python -m unittest tests.test_mcp
 - [ ] Scoped access tokens for the web dashboard
       acceptance: a token carries read/operate/answer scopes and is stored hashed
 - [ ] PWA shell and push for the web dashboard

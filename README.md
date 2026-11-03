@@ -519,7 +519,7 @@ nearest marker is found first -- that inner repository really is the project.
 python -m unittest discover -s tests -t .
 ```
 
-Ninety-three of them, and no test dependency: they are plain `unittest` cases,
+A hundred and ninety-five of them, and no test dependency: they are plain `unittest` cases,
 so they run under `pytest` too if you prefer its output. Each one gets a
 throwaway `LOCALAPPDATA` via `tests/_env.Sandbox`, so a test run never touches
 the real event log or database.
@@ -569,6 +569,63 @@ count* of each, which is what lets the detail pane say "and 28 more" honestly.
 Selecting a row then fetches that one observation whole, from `store` directly
 in Qt and from `/api/memory?id=` on the web. A page row is now **2.4 KB instead
 of 15 KB**, and the detail is complete when someone is actually reading it.
+
+## Asking mid-turn
+
+The orientation block above is one read, at session start, inside a budget,
+decided before the agent knows what it has been asked to do. Twenty turns
+later, standing in front of "have we tried this before?", it has no way to ask.
+The answer is in `store.db` and unreachable, so it re-derives what it already
+knew -- and that lands on the one number this project is trying to reduce.
+
+`mcp_server.py` makes the store queryable mid-turn, as tools:
+
+| Tool | Answers |
+| --- | --- |
+| `search_memory` | "have we touched this before?" -- full-text over every remembered turn |
+| `project_status` | the goal, the live milestone, what is settled, how much is remembered |
+| `milestone_state` | the whole board, with each milestone's acceptance, check command and evidence |
+| `recent_decisions` | what was already decided, and why |
+| `observation_detail` | one turn in full, by the id the search prints |
+
+Register it, then restart Claude Code:
+
+```
+python mcp_server.py install        # ~/.claude.json, every project
+python mcp_server.py install --project   # .mcp.json, this repo only
+python mcp_server.py status
+```
+
+There is no framework in it. MCP over stdio is newline-delimited JSON-RPC 2.0,
+which is `json` and a `while` loop, and "no new runtime dependencies" is a
+constraint on the board. Three things the protocol punishes, each of which fails
+silently rather than loudly:
+
+* **stdout belongs to the protocol.** One stray `print` corrupts the frame and
+  the client sees a dead server. Diagnostics go to stderr. A test parses every
+  line of a real subprocess's stdout as JSON to keep it that way.
+* **A notification gets no reply.** A message with no `id` must not be
+  answered; `notifications/initialized` is the one every client sends, and
+  replying to it is how a handshake ends in a stall.
+* **A handler must not be able to kill the loop.** A server that dies takes the
+  agent's memory with it for the rest of the session, so a malformed line, an
+  unknown method and a raising handler all leave it answering the next request.
+
+Tool results are trimmed the same way the Memory tab's rows are, for the same
+reason: a tool result is a context cost. A search over a sixty-command turn
+comes back under 4 KB and says what it hid, with the id to fetch it whole.
+
+`goals.verify` is deliberately **not** a tool. It runs the `check:` shell
+strings out of `GOAL.md`, and reachable from an agent mid-turn that is a shell
+escape around the permission system. Verification stays something a person asks
+for.
+
+One guard worth naming, because a test found it rather than a review:
+`goals.sync` resolves `GOAL.md` against the working directory, so syncing on
+behalf of a project you are *not* standing in would read **this** repository's
+board and write it under that project's name. A read tool would have been
+quietly corrupting another project's milestones. A named project that is not the
+local one is now reported from the database alone.
 
 ## The dashboard
 
@@ -827,6 +884,7 @@ the toggle has no effect rather than blanking the window.
 | `observe.py` | Turns a finished turn's transcript into an observation |
 | `goals.py` | `GOAL.md` in, milestones out; verifies them and writes status back |
 | `context.py` | The orientation block a session starts with |
+| `mcp_server.py` | MCP server over the store, so an agent can ask mid-turn |
 | `GOAL.md` | This project's own end goal and milestone board |
 | `tests/` | The suite the milestone checks run |
 | `stats.py` | Aggregates the log into metrics, task records and pricing |
@@ -839,7 +897,7 @@ the toggle has no effect rather than blanking the window.
 | `identity.py` | Device identity and team enrollment (`team.json`) |
 | `cloud.py` | Supabase REST transport, stdlib only |
 | `sync.py` | Pushes this laptop's activity up, pulls the team board down |
-| `hooks.py` | Installs and removes the five Claude Code hooks |
+| `hooks.py` | Installs and removes the six Claude Code hooks |
 | `deploy.py` | Builds the install bundle for a teammate |
 | `install/install.ps1` | The installer that runs on a teammate's laptop |
 | `schema.sql` | Supabase tables, RLS policies and retention |
