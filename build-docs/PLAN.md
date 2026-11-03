@@ -47,6 +47,43 @@ the repository root, which is both the human-editable source and the thing
 | 9 | [PWA shell and push](features/pwa-and-push.md) | done |
 | 10 | Goal-driven runner with worktree isolation | planned |
 | 11 | Autonomy budgets and escalation policy | planned |
+| 12 | [SirahOS WorkLog bridge](features/sirahos-worklog-bridge.md) | core done; UI pending |
+| 13 | [Shareable `.exe` for the team](features/exe-distribution.md) | planned |
+| 14 | [Dashboard visual identity: match SirahOS](features/sirahos-visual-identity.md) | done |
+| 15 | [SirahOS-side webhook: server-to-server WorkLog ingest](features/sirahos-webhook-ingest.md) | declined 2026-11-04 — per-user sign-in stays the only path |
+
+## Open questions on the SirahOS bridge
+
+Decisions needed before build starts. Each has a recommendation.
+
+1. **Aggregation granularity.** The tile records per-turn (seconds-to-minutes).
+   SirahOS WorkLogs are per-day human entries. Recommendation: one WorkLog per
+   `(IST calendar day, project folder)`, auto-generated notes listing the turns.
+   The alternative — one WorkLog per turn — would make hundreds of 2-minute
+   entries and swamp the SirahOS team view.
+
+2. **Project mapping.** `memory_analyzer.tasks.project` is a disk folder name;
+   `SirahOS.projectId` is a cuid. Recommendation: a user-maintained
+   `folder_project_map` in the tile's config, with a nag when an unmapped
+   folder appears for ≥ 2 days. Alternative: fuzzy-match on folder name vs
+   SirahOS project name (brittle; names drift).
+
+3. **Milestone-to-task mapping.** GOAL.md milestones ≠ SirahOS tasks today.
+   Recommendation: skip `taskId` in v1. Add it in v2 once the GOAL.md board
+   has a stable id for each milestone.
+
+4. **Code signing.** See `features/exe-distribution.md`. Recommendation: ship
+   unsigned v1, revisit if a teammate's IT blocks it.
+
+5. **Who authenticates the push.** Each teammate signs in to SirahOS from the
+   tile; their JWT is stored via Windows DPAPI; WorkLogs are posted *as them*.
+   The alternative — one service account posting on everyone's behalf — would
+   require a new SirahOS endpoint and would strip per-user XP/streak.
+   Recommendation: per-user sign-in, no new SirahOS endpoint.
+
+6. **Non-Windows teammates.** The tile is Windows-only (PySide6+pywin32). If
+   any teammate uses macOS or Linux, they will keep logging by hand. Flag:
+   who on the team is on what OS?
 
 ## Build order
 

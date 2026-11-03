@@ -64,6 +64,30 @@ updated whenever a decision is made.
   installability: an installed app opens `/` with no token in sight.
 - **The palette has no red.** Deliberate: status colour comes from
   `viz.STATUS[...]`, and a tile that cries wolf gets ignored.
+- **SirahOS WorkLogs are the second sink; Supabase stays the first.** The
+  bridge is a separate scheduled job, not a replacement for `sync.py`.
+  Supabase gets the per-turn telemetry (fast, anonymous, team board). SirahOS
+  gets daily rollups per project (slow, authenticated, billing).
+- **Aggregation granularity is one WorkLog per (IST day, folder).** Per-turn
+  would be ~20 entries a day a person and would bury the team view; per-week
+  loses the day-level cadence SirahOS expects. The disk folder name is NOT
+  the SirahOS project name -- `voicetranscriber` on this laptop may be
+  "AuraTel" in SirahOS -- so the mapping is a user-maintained table in the
+  tile's config, keyed by folder basename.
+- **Each teammate signs in to SirahOS from the tile, as themselves.** XP,
+  streaks and per-user project membership checks are enforced by the SirahOS
+  server; a shared service account would strip them. The JWT is stored via
+  Windows DPAPI, bound to the Windows user.
+- **The exe ships unsigned.** Every teammate is on Windows and internal; an
+  EV cert is $300/yr for a one-time SmartScreen click. Revisit if a
+  teammate's IT disables "run anyway".
+- **Per-user sign-in is the only auth path for the SirahOS bridge.** A
+  server-side integration-secret endpoint was designed (see
+  `features/sirahos-webhook-ingest.md`) and declined 2026-11-04: it shortens
+  the teammate setup by one step but a single leaked secret would write
+  WorkLogs across the whole team until rotated, whereas a leaked JWT is
+  one user's. The per-user path also keeps the server unchanged. No
+  SirahOS-side code is needed for the bridge to work.
 
 ## Constraints
 
