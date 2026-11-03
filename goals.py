@@ -259,6 +259,12 @@ def verify(proj: str, repo: str = "", conn=None, only: str = "") -> list[dict]:
     Only ever invoked explicitly. It executes commands out of a file in the
     repository, which is fine when a person asked for it and is not something a
     hook should ever do on its own.
+
+    Each result is committed before the next command runs. Batching the writes
+    to the end leaves a write transaction open across every later subprocess,
+    and a check command that touches the store -- which the interesting ones do,
+    since the store is what this project builds -- then dies on a locked
+    database and is recorded as a failure it never had.
     """
     own = conn is None
     conn = conn or store.connect()
@@ -298,10 +304,10 @@ def verify(proj: str, repo: str = "", conn=None, only: str = "") -> list[dict]:
                 (status, evidence + (" | " + detail if detail else ""),
                  time.time(), m["id"]),
             )
+            conn.commit()
             out.append({**m, "status": status,
                         "result": "passed" if passed else "failed",
                         "detail": detail})
-        conn.commit()
         return out
     finally:
         if own:

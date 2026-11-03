@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 import unittest
 
-from ._env import Sandbox
+from ._env import PROJECT, Sandbox
 
 SAMPLE = """# Goal
 
@@ -220,6 +220,56 @@ class VerifyTest(unittest.TestCase):
         rows = self.sb.goals.verify("p", self.repo, only="alpha")
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["title"], "Alpha")
+
+
+    def probe(self, name: str, body: str) -> str:
+        """Write a check script into the repo and return the command to run it.
+
+        A real file rather than a ``python -c`` one-liner: the quoting of a
+        nested SQL string inside a shell string inside a Markdown field is a
+        way to test the escaping rather than the behaviour.
+        """
+        path = os.path.join(self.repo, name)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("import sys\nsys.path.insert(0, %r)\nimport store\n" % PROJECT)
+            fh.write(body)
+        return "python %s" % name
+
+    def test_a_check_command_can_touch_the_store(self):
+        """Verify must not hold a write transaction across a check command.
+
+        The results used to be committed once at the end, which left a write
+        transaction open from the first milestone onward. Any later check that
+        opened the store -- and the interesting checks all do, since the store
+        is what this project builds -- died on a locked database and was
+        recorded as a failure it never had.
+        """
+        writer = self.probe("probe_write.py", (
+            "conn = store.connect()\n"
+            "conn.execute(\"insert into decisions (proj, title, decided_at) \"\n"
+            "             \"values ('p', 'probe', 0)\")\n"
+            "conn.commit()\n"
+            "conn.close()\n"))
+        self.goal(
+            '- [ ] First\n      check: python -c "raise SystemExit(0)"\n'
+            "- [ ] Second\n      check: %s\n" % writer)
+        rows = self.sb.goals.verify("p", self.repo)
+        self.assertEqual(rows[0]["result"], "passed")
+        self.assertEqual(rows[1]["result"], "passed", rows[1]["detail"])
+
+    def test_each_result_is_committed_before_the_next_check_runs(self):
+        """A later check sees the earlier milestone's recorded result."""
+        reader = self.probe("probe_read.py", (
+            "conn = store.connect()\n"
+            "n = conn.execute(\"select count(*) n from milestones \"\n"
+            "                 \"where status='done'\").fetchone()[0]\n"
+            "conn.close()\n"
+            "raise SystemExit(0 if n == 1 else 9)\n"))
+        self.goal(
+            '- [ ] First\n      check: python -c "raise SystemExit(0)"\n'
+            "- [ ] Second\n      check: %s\n" % reader)
+        rows = self.sb.goals.verify("p", self.repo)
+        self.assertEqual(rows[1]["result"], "passed", rows[1]["detail"])
 
 
 class ExportTest(unittest.TestCase):

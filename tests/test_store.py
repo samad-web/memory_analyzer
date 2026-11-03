@@ -186,5 +186,70 @@ class BriefTest(unittest.TestCase):
         self.assertEqual(b["recent"], [])
 
 
+class ConcurrencyTest(unittest.TestCase):
+    """Opening the database must not need the write lock.
+
+    ``connect`` used to run ``pragma user_version=N`` unconditionally, which
+    writes the file header. That made every open -- including a pure read from
+    the dashboard or the MCP server -- queue behind any open write transaction,
+    wait the full ten-second timeout and then fail "database is locked". WAL
+    buys concurrent readers only if opening is lock-free.
+    """
+
+    def setUp(self) -> None:
+        self.sb = Sandbox()
+        self.addCleanup(self.sb.close)
+        self.store = self.sb.store
+
+    def test_a_reader_can_open_while_a_writer_holds_a_transaction(self):
+        writer = self.store.connect()
+        self.addCleanup(writer.close)
+        writer.execute("begin immediate")
+        writer.execute("update meta set value=value")
+
+        started = time.time()
+        reader = self.store.connect()
+        self.addCleanup(reader.close)
+        rows = reader.execute("select count(*) n from observations").fetchone()["n"]
+        elapsed = time.time() - started
+
+        self.assertEqual(rows, 0)
+        self.assertLess(elapsed, 2.0,
+                        "opening took %.1fs -- it waited on a lock" % elapsed)
+        writer.rollback()
+
+    def test_every_query_function_works_while_a_writer_holds_a_transaction(self):
+        self.store.connect().close()        # create the schema first
+        writer = self.store.connect()
+        self.addCleanup(writer.close)
+        writer.execute("begin immediate")
+        writer.execute("update meta set value=value")
+
+        self.assertEqual(self.store.observations_page()["total"], 0)
+        self.assertEqual(self.store.search("anything"), [])
+        self.assertEqual(self.store.recent_observations(), [])
+        self.assertIsNone(self.store.brief("demo")["goal"])
+        writer.rollback()
+
+    def test_a_current_database_is_opened_without_writing(self):
+        """The fast path is the point: no migration, no schema script, no header."""
+        self.store.connect().close()
+        conn = self.store.connect()
+        self.addCleanup(conn.close)
+        self.assertEqual(conn.in_transaction, False)
+        self.assertEqual(
+            int(conn.execute("pragma user_version").fetchone()[0]),
+            self.store.SCHEMA_VERSION)
+
+    def test_a_fresh_database_still_gets_its_schema(self):
+        conn = self.store.connect()
+        self.addCleanup(conn.close)
+        tables = {r["name"] for r in conn.execute(
+            "select name from sqlite_master where type='table'")}
+        for table in ("events", "observations", "goals", "milestones",
+                      "decisions", "meta"):
+            self.assertIn(table, tables)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -220,6 +220,16 @@ def connect(path: str = DB_PATH) -> sqlite3.Connection:
     WAL is what lets a reader (the dashboard) and a writer (the ingester) work
     at once without either blocking the other, which matters because the
     dashboard polls.
+
+    WAL only delivers that if opening the database takes no write lock, and
+    this function used to take one every single time: ``pragma user_version=N``
+    writes the file header, so a reader opening an already-current database
+    queued behind any open write transaction, waited the full timeout and then
+    failed with "database is locked". A read tool cannot be allowed to fail
+    because something else is mid-write. So when the version on disk already
+    matches, nothing here writes at all -- no migration, no ``executescript``
+    of the schema, no header write. That is also the common case by a wide
+    margin, and it makes opening cheap enough for a polling dashboard.
     """
     os.makedirs(os.path.dirname(path), exist_ok=True)
     conn = sqlite3.connect(path, timeout=10.0)
@@ -230,9 +240,11 @@ def connect(path: str = DB_PATH) -> sqlite3.Connection:
     conn.execute("pragma synchronous=normal")
 
     found = int(conn.execute("pragma user_version").fetchone()[0] or 0)
-    if found and found < SCHEMA_VERSION:
-        _migrate(conn, found)
+    if found == SCHEMA_VERSION:
+        return conn
 
+    if found:
+        _migrate(conn, found)
     conn.executescript(_SCHEMA)
     conn.execute("pragma user_version=%d" % SCHEMA_VERSION)
     conn.commit()
