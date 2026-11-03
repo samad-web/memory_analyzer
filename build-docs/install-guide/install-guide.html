@@ -198,35 +198,65 @@
     font-size: 13.5px;
   }
 
-  /* ------- screenshot placeholder ------- */
-  .screenshot {
+  /* ------- real screenshots ------- */
+  figure.shot {
     margin: 22px 0 6px;
     background: hsl(var(--muted));
-    border: 2px dashed hsl(var(--border));
+    border: 1px solid hsl(var(--border));
     border-radius: 14px;
-    padding: 56px 24px;
+    padding: 10px 10px 14px;
     text-align: center;
-    color: hsl(var(--muted-foreground));
-    font-size: 13.5px;
-    position: relative;
   }
-  .screenshot::before {
-    content: "SCREENSHOT";
-    position: absolute;
-    top: 10px; left: 14px;
-    font-size: 10px;
-    letter-spacing: 0.14em;
-    font-weight: 700;
-    color: hsl(var(--primary));
-  }
-  .screenshot b {
+  figure.shot img {
     display: block;
-    color: hsl(var(--foreground));
-    font-size: 15px;
-    margin-bottom: 6px;
-    font-family: "Plus Jakarta Sans", sans-serif;
-    font-weight: 700;
+    width: 100%;
+    height: auto;
+    border-radius: 10px;
+    border: 1px solid hsl(var(--border));
+    box-shadow: 0 8px 24px -8px hsl(var(--foreground) / 0.15);
+    background: hsl(var(--card));
   }
+  figure.shot figcaption {
+    margin-top: 10px;
+    font-size: 12.5px;
+    color: hsl(var(--muted-foreground));
+    font-family: "Plus Jakarta Sans", sans-serif;
+    font-weight: 500;
+  }
+  /* Side-by-side pair for showing light + dark */
+  .shot-pair {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin: 22px 0 6px;
+  }
+  .shot-pair figure.shot { margin: 0; }
+  @media (max-width: 720px) {
+    .shot-pair { grid-template-columns: 1fr; }
+  }
+  /* An illustrative mockup of the tile widget (hidden from screen capture
+     by design, so a real screenshot is impossible). */
+  .tile-mock {
+    display: inline-block;
+    width: 260px;
+    border-radius: 14px;
+    padding: 12px 14px;
+    background: #0e1119;
+    color: #e6eaf2;
+    text-align: left;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    box-shadow: 0 12px 30px -10px rgba(0,0,0,0.35);
+    border: 1px solid #262b38;
+  }
+  .tile-mock .row { display: flex; justify-content: space-between; align-items: center; padding: 3px 0; }
+  .tile-mock .label { color: #8a93a6; }
+  .tile-mock .val { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .tile-mock .bar { height: 4px; background: #1a1e2a; border-radius: 2px; margin: 2px 0 6px; overflow: hidden; }
+  .tile-mock .bar > span { display: block; height: 100%; border-radius: 2px; }
+  .tile-mock .cpu > span { width: 28%; background: #4cc2ff; }
+  .tile-mock .ram > span { width: 54%; background: #a78bfa; }
+  .tile-mock .gpu > span { width: 12%; background: #4ade80; }
 
   /* ------- callouts ------- */
   .callout {
@@ -483,9 +513,14 @@
         Click <strong>More info</strong>, then <strong>Run anyway</strong>.</li>
   </ol>
 
-  <div class="screenshot">
-    <b>SmartScreen dialog</b>
-    “Windows protected your PC” → “More info” link → “Run anyway” button
+  <div class="callout warn">
+    <span class="icon">!</span>
+    <div>
+      <b>SmartScreen dialog looks like this</b>
+      "Windows protected your PC" — click the <strong>More info</strong>
+      link in that dialog, then <strong>Run anyway</strong>. Windows
+      remembers your decision; the warning does not come back next time.
+    </div>
   </div>
 
   <ol start="4">
@@ -506,10 +541,6 @@
         sign-in</strong> option ticked and click <strong>Finish</strong>.</li>
   </ol>
 
-  <div class="screenshot">
-    <b>Installer — "Select Additional Tasks" page</b>
-    Both "Push WorkLogs..." and "Start at logon" ticked.
-  </div>
 
   <div class="callout warn">
     <span class="icon">!</span>
@@ -534,10 +565,23 @@
     appears in the top-right of your screen. That's the tile.
   </p>
 
-  <div class="screenshot">
-    <b>The tile, first time</b>
-    Small floating widget showing CPU · RAM · GPU · tokens today.
-  </div>
+  <figure class="shot" style="background:transparent;border:0;padding:0">
+    <div style="display:flex; justify-content:center; padding:20px">
+      <div class="tile-mock" aria-label="Illustration of the Memory Analyzer tile">
+        <div class="row"><span class="label">CPU</span><span class="val">28%</span></div>
+        <div class="bar cpu"><span></span></div>
+        <div class="row"><span class="label">RAM</span><span class="val">54% · 13.7 GB</span></div>
+        <div class="bar ram"><span></span></div>
+        <div class="row"><span class="label">GPU</span><span class="val">12%</span></div>
+        <div class="bar gpu"><span></span></div>
+        <div class="row" style="margin-top:8px"><span class="label">tokens today</span><span class="val">985.6M</span></div>
+        <div class="row"><span class="label">median task</span><span class="val">3m</span></div>
+      </div>
+    </div>
+    <figcaption>Illustration of the floating tile. The real tile is deliberately
+      <strong>hidden from screen capture</strong> (so your Zoom calls never show it),
+      which is why this figure is a mockup rather than a real screenshot.</figcaption>
+  </figure>
 
   <ol>
     <li>Right-click the tile.</li>
@@ -570,10 +614,11 @@
     <li>Click <strong>Sign in</strong>.</li>
   </ol>
 
-  <div class="screenshot">
-    <b>SirahOS tab — sign-in card</b>
-    Email + password form on a violet-tinted surface-elevated card.
-  </div>
+  <figure class="shot">
+    <img src="assets/screenshots/dashboard-sirahos-light.png"
+         alt="The SirahOS tab in light mode, showing the sign-in card.">
+    <figcaption>SirahOS tab — sign-in card (light theme). Password is sent once and discarded; only the access token is stored, encrypted via Windows DPAPI.</figcaption>
+  </figure>
 
   <p>
     After a second or two the form disappears and the mapping panel shows up
@@ -607,11 +652,11 @@
     right is a dropdown of every SirahOS project you can log work against.
   </p>
 
-  <div class="screenshot">
-    <b>Folder → SirahOS project mapping</b>
-    e.g. <code>voicetranscriber → AuraTel · Client X</code>,
-    <code>WealthOS-Mobile → WealthOS Mobile · Client Y</code>.
-  </div>
+  <figure class="shot">
+    <img src="assets/screenshots/dashboard-sirahos-dark.png"
+         alt="The SirahOS tab after sign-in, showing the folder-to-project mapping panel.">
+    <figcaption>SirahOS tab after sign-in — one row per folder, dropdown of SirahOS projects on the right, with a <em>Save mapping</em> and <em>Push now</em> button below.</figcaption>
+  </figure>
 
   <ol>
     <li>For each folder you care about, pick the matching SirahOS project
@@ -650,11 +695,6 @@
         turns you ran.</li>
   </ol>
 
-  <div class="screenshot">
-    <b>SirahOS WorkLogs — your entries</b>
-    One entry per day per project, "N Claude Code turns, Xh Ym total",
-    followed by a short bullet list of what you asked each turn.
-  </div>
 
   <div class="callout note">
     <span class="icon">i</span>
@@ -777,11 +817,28 @@
     </tbody>
   </table>
 
-  <div class="screenshot">
-    <b>The dashboard — Overview</b>
-    Hero header, six stat tiles, trend chart, token-by-model donut.
-    Light and dark themes both supported via the toggle in the top bar.
+  <div class="shot-pair">
+    <figure class="shot">
+      <img src="assets/screenshots/dashboard-overview-dark.png"
+           alt="Memory Analyzer dashboard, Overview tab, dark theme.">
+      <figcaption>Overview tab — dark theme</figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="assets/screenshots/dashboard-overview-light.png"
+           alt="Memory Analyzer dashboard, Overview tab, light theme.">
+      <figcaption>Overview tab — light theme</figcaption>
+    </figure>
   </div>
+  <figure class="shot">
+    <img src="assets/screenshots/dashboard-memory-dark.png"
+         alt="Memory Analyzer dashboard, Memory tab, dark theme.">
+    <figcaption>Memory tab — search what past turns did, across every project.</figcaption>
+  </figure>
+  <figure class="shot">
+    <img src="assets/screenshots/dashboard-tile-dark.png"
+         alt="Memory Analyzer dashboard, Tile tab, dark theme.">
+    <figcaption>Tile tab — appearance, behaviour, notification settings for the floating widget.</figcaption>
+  </figure>
 
   <div class="callout note">
     <span class="icon">🌓</span>
