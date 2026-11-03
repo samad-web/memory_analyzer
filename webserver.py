@@ -36,6 +36,7 @@ import events
 import identity
 import stats
 import sync
+import tokens
 import viz
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -369,17 +370,42 @@ class _DashboardHandler(BaseHTTPRequestHandler):
 
     # -- helpers ---------------------------------------------------------
 
-    def _authorised(self) -> bool:
-        owner = self.owner
-        if owner.local_only:
-            return True
-        token = owner.token
-        if not token:
-            return False
+    def _supplied_token(self) -> str:
         header = self.headers.get("X-Dashboard-Token", "")
         query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
-        supplied = header or (query.get("token") or [""])[0]
-        return secrets.compare_digest(str(supplied), token)
+        return str(header or (query.get("token") or [""])[0])
+
+    def _scopes(self) -> list[str]:
+        """What the caller is allowed to do. Empty means "nothing".
+
+        The legacy ``config.json`` token carries everything. Breaking a working
+        remote dashboard to tidy up the auth model would be the wrong trade, so
+        it keeps working and ``tokens.py list`` reports it as legacy.
+        """
+        owner = self.owner
+        if owner.local_only:
+            return list(tokens.SCOPES)
+        supplied = self._supplied_token()
+        if not supplied:
+            return []
+        if owner.token and secrets.compare_digest(supplied, owner.token):
+            return list(tokens.SCOPES)
+        return tokens.verify(supplied)
+
+    def _authorised(self, scope: str = tokens.READ) -> bool:
+        return scope in self._scopes()
+
+    def _deny(self, scope: str) -> None:
+        """401 when there is no usable credential, 403 when there is.
+
+        Conflating the two makes a client retry forever against a permission it
+        will never be granted, and tells a caller holding a read-only token
+        that their token is broken when it is working exactly as issued.
+        """
+        if self._scopes():
+            self._json({"error": "this token does not carry '%s'" % scope}, 403)
+        else:
+            self._json({"error": "token required"}, 401)
 
     def _send(self, status: int, body: bytes, content_type: str) -> None:
         self.send_response(status)
@@ -420,8 +446,8 @@ class _DashboardHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802
         path = urllib.parse.urlparse(self.path).path
-        if not self._authorised():
-            self._json({"error": "token required"}, 401)
+        if not self._authorised(tokens.READ):
+            self._deny(tokens.READ)
             return
 
         if path in ("/", "/index.html"):
@@ -473,8 +499,12 @@ class _DashboardHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         path = urllib.parse.urlparse(self.path).path
-        if not self._authorised():
-            self._json({"error": "token required"}, 401)
+        # Every POST changes this machine's state -- the tile, or a sync that
+        # pushes activity upstream -- so read alone is not enough for any of
+        # them. A new POST route inherits that by default rather than having
+        # to remember to ask.
+        if not self._authorised(tokens.OPERATE):
+            self._deny(tokens.OPERATE)
             return
 
         try:

@@ -30,6 +30,7 @@ Two rules learned the hard way:
 | Install bundle closure | `tests/test_deploy.py` | pass |
 | Memory tab | `tests/test_memory.py` | pass |
 | MCP server | `tests/test_mcp.py` | pass |
+| Scoped tokens | `tests/test_tokens.py` | pass |
 
 ## Failures found and fixed
 
@@ -64,3 +65,7 @@ Two rules learned the hard way:
 - **`goals.verify` held a write transaction across every check command.** Both
   fixes were confirmed by reverting them: four tests fail, and the suite takes
   44s instead of 1.6s because of the lock waits.
+- **`tokens.verify` could raise into the HTTP handler.** It promised
+  "never raises" but caught only `sqlite3.Error`; opening the store also
+  makes a directory, so a full disk arrives as `OSError`. Found by the
+  fail-closed test, which patched `connect` to raise `RuntimeError`.

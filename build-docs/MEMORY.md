@@ -42,6 +42,13 @@ updated whenever a decision is made.
   ever synced. Named projects are reported from the database alone.
 - **A long-running command must not run inside a write transaction.**
   `goals.verify` commits each result before the next check command starts.
+- **API tokens are hashed with sha256, not a password KDF.** 32 bytes of
+  `secrets.token_urlsafe` has no dictionary to run against it; scrypt would buy
+  nothing and cost real time on every request.
+- **401 and 403 are different answers.** Missing credential vs missing scope.
+- **Scopes are a list, not a ladder.** `operate` does not imply `read`.
+- **`answer` is defined before it has an endpoint**, so the PWA's reply channel
+  cannot be born unscoped.
 - **The palette has no red.** Deliberate: status colour comes from
   `viz.STATUS[...]`, and a tile that cries wolf gets ignored.
 

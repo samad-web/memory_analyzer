@@ -42,8 +42,8 @@ the repository root, which is both the human-editable source and the thing
 | 4 | Goal and milestone layer read from GOAL.md | done |
 | 5 | SessionStart injection of goal and recent work | done |
 | 6 | Memory tab in both dashboards | done |
-| 7 | [MCP server over the store](features/mcp-server.md) | built, awaiting registration |
-| 8 | Scoped access tokens for the web dashboard | planned |
+| 7 | [MCP server over the store](features/mcp-server.md) | done |
+| 8 | [Scoped access tokens for the web dashboard](features/scoped-tokens.md) | done |
 | 9 | PWA shell and push | planned |
 | 10 | Goal-driven runner with worktree isolation | planned |
 | 11 | Autonomy budgets and escalation policy | planned |

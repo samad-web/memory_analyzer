@@ -186,7 +186,7 @@ New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 $reporterFiles = @(
     'notify.py', 'events.py', 'agent_alert.py', 'identity.py',
     'cloud.py', 'sync.py', 'stats.py', 'hooks.py', 'sensors.py', 'msi_ec.py',
-    'store.py', 'observe.py', 'goals.py', 'context.py', 'mcp_server.py'
+    'store.py', 'observe.py', 'goals.py', 'context.py', 'mcp_server.py', 'tokens.py'
 )
 $fullFiles = @(
     'widget.py', 'dashboard.py', 'charts.py', 'viz.py', 'webserver.py',

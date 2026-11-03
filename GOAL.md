@@ -46,8 +46,9 @@ bottleneck; direction is.
       acceptance: an agent can search its own history mid-turn, not only at
                   session start
       check: python -m unittest tests.test_mcp
-- [ ] Scoped access tokens for the web dashboard
+- [x] Scoped access tokens for the web dashboard
       acceptance: a token carries read/operate/answer scopes and is stored hashed
+      check: python -m unittest tests.test_tokens
 - [ ] PWA shell and push for the web dashboard
       acceptance: installable on a phone, and an escalation arrives as a push
 - [ ] Goal-driven runner with worktree isolation

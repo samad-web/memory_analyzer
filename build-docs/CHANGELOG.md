@@ -1,5 +1,19 @@
 # Changelog
 
+## feat(scoped-tokens)
+
+`tokens.py`: hashed, scoped, revocable access tokens for the web dashboard,
+replacing the single all-or-nothing `web_token`. Scopes are `read`, `operate`
+and `answer`; `answer` is reserved for the PWA milestone's reply channel and is
+defined now so that endpoint cannot be born unscoped. Schema 3 -> 4, additive.
+
+A missing credential is 401 and a missing scope is 403. Scopes are a list, not
+a ladder. The legacy plaintext token keeps working and carries everything.
+
+Found while testing: `verify` promised "never raises" but caught only
+`sqlite3.Error`, so an `OSError` from opening the store would have escaped into
+the HTTP handler. It catches everything now and fails closed.
+
 ## fix(ingest)
 
 Three more defects:

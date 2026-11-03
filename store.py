@@ -46,7 +46,7 @@ import events
 
 DB_PATH = os.path.join(events.ROOT, "store.db")
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 # Statuses a milestone moves through. "done" is only ever set from evidence --
 # see the note on `check_cmd` in the schema.
@@ -211,6 +211,28 @@ create table if not exists decisions (
 );
 
 create index if not exists dec_proj_idx on decisions (proj, decided_at desc);
+
+-- ----------------------------------------------------------------- tokens --
+-- Access to the web dashboard, one row per issued credential.
+--
+-- `tid` is the public half: it travels in the token string and indexes this
+-- row, so verifying costs one lookup rather than a scan over every token.
+-- `hash` is sha256 of the secret half and the secret itself is never stored,
+-- so a leaked database yields no working credentials.
+--
+-- `scopes` is space separated rather than a join table on purpose. There are
+-- three of them, they are read on every request, and a second table would buy
+-- nothing but a join.
+create table if not exists tokens (
+  tid          text primary key,
+  hash         text    not null,
+  scopes       text    not null default '',
+  label        text    not null default '',
+  created_at   real    not null,
+  expires_at   real    not null default 0,
+  last_used_at real    not null default 0,
+  revoked_at   real    not null default 0
+);
 """
 
 
@@ -280,6 +302,13 @@ def _migrate(conn: sqlite3.Connection, found: int) -> None:
             )
         except sqlite3.OperationalError:
             pass    # already present, or the table does not exist yet
+    if found < 4:
+        # `tokens` is purely additive -- the `create table if not exists` in
+        # the schema below does the whole job. It is named here only so the
+        # next person reading this does not conclude v4 was a no-op and
+        # "tidy" the table into a rebuild: an issued credential cannot be
+        # regenerated from the event log the way an event row can.
+        pass
     conn.commit()
 
 

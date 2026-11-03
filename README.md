@@ -519,7 +519,7 @@ nearest marker is found first -- that inner repository really is the project.
 python -m unittest discover -s tests -t .
 ```
 
-A hundred and ninety-five of them, and no test dependency: they are plain `unittest` cases,
+Two hundred and thirty-eight of them, and no test dependency: they are plain `unittest` cases,
 so they run under `pytest` too if you prefer its output. Each one gets a
 throwaway `LOCALAPPDATA` via `tests/_env.Sandbox`, so a test run never touches
 the real event log or database.
@@ -705,8 +705,53 @@ separate server would have to shout at the tile across a process boundary.
 
 Localhost needs no authentication -- reaching it already means running code on
 this machine. Binding wider is opt-in via `web_bind` in `config.json`, and then
-a token is generated and required on every request, because the page shows
-prompt text and can resize someone's tile.
+a token is required on every request, because the page shows prompt text and
+can resize someone's tile.
+
+### Scoped tokens
+
+One all-or-nothing secret was fine while the only client was a browser on this
+laptop. It stops being fine once this is on a phone: whoever holds that string
+can read every project's history *and* change the tile and trigger a sync, and
+there is no way to take one holder's access back without breaking everyone's.
+
+`tokens.py` issues tokens that carry only what they need:
+
+| Scope | Lets the holder |
+| --- | --- |
+| `read` | GET any view, and the page itself |
+| `operate` | POST `/api/tile` and `/api/sync` -- change this machine's state |
+| `answer` | reply to a blocked agent. Reserved: no endpoint consumes it yet, and it is defined now so that endpoint cannot be born unscoped. |
+
+```
+python tokens.py mint read --label phone --days 30
+python tokens.py list
+python tokens.py revoke 4f606d90
+```
+
+A token is `<id>.<secret>`. The id is public and indexes the row, so verifying
+costs one lookup instead of a scan. The secret is 32 random bytes, printed once
+and **never stored** -- only its sha256 is, so a leaked `store.db` yields no
+working credentials. An unknown id is still hashed and compared against a dummy
+digest, so a miss takes the same time as a hit and valid ids cannot be probed.
+
+Not a password KDF, deliberately. There is no dictionary to run against 32
+bytes of `secrets.token_urlsafe`; scrypt would buy nothing and would cost real
+time on *every* request, which is the wrong trade for a check that runs on each
+poll of a dashboard.
+
+Two things the tests pin, because the failure directions are not symmetric --
+locking yourself out is reported within a minute, and a read-only token being
+allowed to POST is reported by nobody:
+
+* a missing credential is **401** and a missing scope is **403**. Conflating
+  them makes a client retry forever against a permission it will never get.
+* scopes are a list, not a ladder: `operate` alone does not imply `read`.
+
+Everything fails closed. A malformed token, an unknown id, an expired or
+revoked one, and an unreadable database all produce no scopes at all. The old
+plaintext `web_token` keeps working and carries every scope, because breaking a
+working remote dashboard to tidy up the auth model would be the wrong trade.
 
 It is dependency-free: `http.server` and hand-written SVG, no framework and no
 CDN. A local tool should not stop working because the laptop is offline, which
@@ -884,6 +929,7 @@ the toggle has no effect rather than blanking the window.
 | `observe.py` | Turns a finished turn's transcript into an observation |
 | `goals.py` | `GOAL.md` in, milestones out; verifies them and writes status back |
 | `context.py` | The orientation block a session starts with |
+| `tokens.py` | Scoped, hashed access tokens for the web dashboard |
 | `mcp_server.py` | MCP server over the store, so an agent can ask mid-turn |
 | `GOAL.md` | This project's own end goal and milestone board |
 | `tests/` | The suite the milestone checks run |
@@ -928,7 +974,7 @@ the toggle has no effect rather than blanking the window.
 | `web_enabled` | `true` serves the web dashboard from the widget's process. |
 | `web_port` | Port to listen on; the next free one is taken if it is busy. |
 | `web_bind` | `127.0.0.1` by default. Anything wider forces a token. |
-| `web_token` | Generated when `web_bind` is not localhost. Required on every request. |
+| `web_token` | Legacy all-scope secret, generated when `web_bind` is not localhost. Still honoured; prefer `tokens.py mint`. |
 | `sync_enabled` | `true` uploads to the team project, when `team.json` says to. |
 | `sync_seconds` | How often to upload. |
 

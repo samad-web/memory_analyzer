@@ -27,7 +27,7 @@ if PROJECT not in sys.path:
 # Reload order is a dependency order, not alphabetical.
 _MODULES = (
     "events", "store", "agent_alert", "observe", "goals", "context",
-    "stats", "notify", "mcp_server",
+    "stats", "notify", "mcp_server", "tokens",
 )
 
 
