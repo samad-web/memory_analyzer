@@ -32,11 +32,14 @@ import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import bridge
 import events
 import identity
 import push
 import pwa
+import sirahos
 import stats
+import store
 import sync
 import tokens
 import vapid
@@ -86,6 +89,184 @@ _MIME = {
     ".svg": "image/svg+xml",
     ".ico": "image/x-icon",
 }
+
+
+# -- SirahOS bridge helpers -----------------------------------------------
+# Live outside the handler class so they are testable without an HTTP server
+# in the way, and because they are what the dashboard calls through to.
+#
+# These helpers never raise -- they turn every failure into a dict with an
+# `error` key so the HTTP handler can forward it unchanged. A traceback
+# escaping into an HTTP response would otherwise reveal a path or a stack
+# trace to anyone who holds the dashboard URL.
+
+CONFIG_PATH = os.path.join(HERE, "config.json")
+
+
+def _read_raw_config() -> dict:
+    """Full ``config.json`` as-is, so changes we make preserve unknown keys.
+
+    ``widget.load_config`` filters to its own DEFAULTS and would strip any
+    field a future version added; this reader deliberately does not.
+    """
+    try:
+        with open(CONFIG_PATH, encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _write_raw_config(data: dict) -> bool:
+    """Atomic write: write-to-temp, replace. Returns False on failure.
+
+    A half-written config.json would be loaded as an empty dict on the next
+    boot, which would silently lose settings. Writing beside it and renaming
+    makes the swap all-or-nothing.
+    """
+    try:
+        tmp = CONFIG_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=2)
+        os.replace(tmp, CONFIG_PATH)
+        return True
+    except OSError:
+        return False
+
+
+def _write_sirahos_token(access_token: str) -> bool:
+    """Persist the JWT. DPAPI on Windows, plaintext otherwise.
+
+    Plaintext fallback is for test and dev only -- it covers Linux CI runs
+    and the odd Mac. On a user's machine (which is always Windows for this
+    project) DPAPI is what runs.
+    """
+    os.makedirs(os.path.dirname(bridge.JWT_PATH), exist_ok=True)
+    payload = json.dumps({"accessToken": access_token}).encode("utf-8")
+    try:
+        import win32crypt  # type: ignore
+        blob = win32crypt.CryptProtectData(payload, None, None, None, None, 0)
+    except ImportError:
+        blob = payload
+    except Exception:  # noqa: BLE001 -- DPAPI failures land here
+        return False
+    try:
+        with open(bridge.JWT_PATH, "wb") as fh:
+            fh.write(blob)
+        return True
+    except OSError:
+        return False
+
+
+def bridge_status_payload() -> dict:
+    cfg = _read_raw_config().get("sirahos") or {}
+    api_url = str(cfg.get("api_url") or "")
+    signed_in_as = str(cfg.get("last_signed_in_as") or "")
+    has_token = bool(bridge._load_token())
+    return {
+        "configured": bool(api_url),
+        "api_url": api_url,
+        "signed_in": bool(has_token),
+        "signed_in_as": signed_in_as if has_token else "",
+    }
+
+
+def sirahos_mapping_payload() -> dict:
+    cfg = _read_raw_config().get("sirahos") or {}
+    api_url = str(cfg.get("api_url") or "")
+    folder_project_map = cfg.get("folder_project_map") or {}
+    if not isinstance(folder_project_map, dict):
+        folder_project_map = {}
+    token = bridge._load_token()
+    projects: list[dict] = []
+    if api_url and token:
+        try:
+            projects = sirahos.list_projects(api_url, token)
+        except sirahos.AuthError:
+            # The dashboard will see the token is dead on its next /status call.
+            projects = []
+        except sirahos.SirahOSError:
+            projects = []
+    # Folders this laptop has actually run a Claude turn in -- the mapping UI
+    # shows these on the left so a user does not have to type folder names.
+    conn = store.connect()
+    try:
+        rows = conn.execute(
+            "select distinct proj from events where proj <> '' "
+            "order by proj limit 200"
+        ).fetchall()
+        folders = [row["proj"] for row in rows if row["proj"]]
+    finally:
+        conn.close()
+    # Fold in any folders the user has already mapped, even if we have not
+    # seen a turn in them yet (keeps a mapping stable across a repo rename).
+    for folder in folder_project_map:
+        if folder not in folders:
+            folders.append(folder)
+    return {
+        "projects": projects,
+        "folders": sorted(set(folders)),
+        "folder_project_map": folder_project_map,
+    }
+
+
+def sirahos_signin(body: dict) -> dict:
+    """Exchange email+password for a JWT; store the JWT, discard the password."""
+    email = str((body or {}).get("email") or "").strip()
+    password = str((body or {}).get("password") or "")
+    if not email or not password:
+        return {"ok": False, "error": "Email and password are required"}
+    cfg_all = _read_raw_config()
+    cfg = cfg_all.get("sirahos") or {}
+    api_url = str(cfg.get("api_url") or "")
+    if not api_url:
+        return {"ok": False, "error": "SirahOS API URL is not configured"}
+    try:
+        result = sirahos.login(api_url, email, password)
+    except sirahos.AuthError as e:
+        return {"ok": False, "error": str(e)}
+    except sirahos.SirahOSError as e:
+        return {"ok": False, "error": str(e)}
+    access = result.get("accessToken") or ""
+    if not access:
+        return {"ok": False, "error": "server returned no accessToken"}
+    if not _write_sirahos_token(access):
+        return {"ok": False, "error": "could not persist token"}
+    # Remember who we signed in as, so the UI can show it on next load.
+    cfg["last_signed_in_as"] = (result.get("user") or {}).get("email") or email
+    cfg_all["sirahos"] = cfg
+    _write_raw_config(cfg_all)
+    return {"ok": True}
+
+
+def sirahos_signout() -> dict:
+    """Delete the on-disk JWT. Leaves the API URL and mapping alone."""
+    try:
+        os.unlink(bridge.JWT_PATH)
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        return {"ok": False, "error": str(e)}
+    return {"ok": True}
+
+
+def sirahos_save_mapping(body: dict) -> dict:
+    """Replace ``sirahos.folder_project_map`` in config.json."""
+    incoming = (body or {}).get("folder_project_map") or {}
+    if not isinstance(incoming, dict):
+        return {"ok": False, "error": "folder_project_map must be an object"}
+    clean: dict[str, str] = {}
+    for key, value in incoming.items():
+        if (isinstance(key, str) and isinstance(value, str)
+                and key.strip() and value.strip()):
+            clean[key.strip()] = value.strip()
+    cfg_all = _read_raw_config()
+    cfg = cfg_all.get("sirahos") or {}
+    cfg["folder_project_map"] = clean
+    cfg_all["sirahos"] = cfg
+    if not _write_raw_config(cfg_all):
+        return {"ok": False, "error": "could not write config"}
+    return {"ok": True, "count": len(clean)}
 
 
 class _Cache:
@@ -583,6 +764,9 @@ class _DashboardHandler(BaseHTTPRequestHandler):
         if path.startswith("/api/"):
             self._api_get(path)
             return
+        if path.startswith("/sirahos/"):
+            self._sirahos_get(path)
+            return
         self._static(path.lstrip("/"))
 
     def _icon(self, path: str) -> None:
@@ -698,6 +882,55 @@ class _DashboardHandler(BaseHTTPRequestHandler):
             report = sync.once(days=self._period() or 7)
             owner.cache.clear()
             self._json(report)
+            return
+        if path.startswith("/sirahos/"):
+            self._sirahos_post(path, body)
+            return
+        self._json({"error": "no such endpoint"}, 404)
+
+    # -- SirahOS bridge --------------------------------------------------
+    #
+    # Three states the UI maps onto:
+    #   not configured   -- `sirahos.api_url` empty
+    #   configured, not signed in -- URL set, no JWT on disk
+    #   signed in        -- URL set, JWT on disk, DPAPI-protected
+    #
+    # The password is never persisted. ``/sirahos/signin`` takes it, exchanges
+    # it with SirahOS for an accessToken, writes the DPAPI blob and discards
+    # the password. The JWT is the only credential the bridge ever stores.
+    #
+    # Reads sit on the read scope; everything that changes state sits on
+    # operate, which is what the shared OPERATE check in do_POST already asks
+    # for -- so a read-only token on a phone can show a teammate the mapping,
+    # but it cannot sign them out or change the folder map.
+
+    def _sirahos_get(self, path: str) -> None:
+        if path == "/sirahos/status":
+            self._json(bridge_status_payload())
+            return
+        if path == "/sirahos/mapping":
+            self._json(sirahos_mapping_payload())
+            return
+        if path == "/sirahos/pushes":
+            self._json({
+                "pushes": store.sirahos_recent_pushes(limit=50),
+            })
+            return
+        self._json({"error": "no such endpoint"}, 404)
+
+    def _sirahos_post(self, path: str, body: dict) -> None:
+        if path == "/sirahos/signin":
+            self._json(sirahos_signin(body))
+            return
+        if path == "/sirahos/signout":
+            self._json(sirahos_signout())
+            return
+        if path == "/sirahos/mapping":
+            self._json(sirahos_save_mapping(body))
+            return
+        if path == "/sirahos/push-now":
+            # Runs on the calling thread -- same reasoning as /api/sync.
+            self._json(bridge.push())
             return
         self._json({"error": "no such endpoint"}, 404)
 

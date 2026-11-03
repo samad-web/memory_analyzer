@@ -46,7 +46,7 @@ import events
 
 DB_PATH = os.path.join(events.ROOT, "store.db")
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 # Statuses a milestone moves through. "done" is only ever set from evidence --
 # see the note on `check_cmd` in the schema.
@@ -257,6 +257,39 @@ create table if not exists push_subs (
   last_error text    not null default '',
   failures   integer not null default 0
 );
+
+-- ---------------------------------------------------------- sirahos_pushes --
+-- WorkLogs this laptop has posted to SirahOS, one row per (day, project folder).
+--
+-- The UNIQUE on (ist_date, project_dir) is the watermark: a retry sees the row
+-- and skips, so an offline laptop that catches up a week later never
+-- double-posts a day. Why this grain rather than per-turn: SirahOS WorkLogs are
+-- the human time-sheet; one row per Claude turn would be hundreds of entries
+-- a day and would bury the team view.
+--
+-- `worklog_id` is what SirahOS returned, so we can PATCH or DELETE our own
+-- rows later. A WorkLog whose id is NOT in this table was made by hand in
+-- SirahOS and the bridge never touches it.
+--
+-- `skip` set to 1 means "the user told the tile not to push this day". Hours
+-- and worklog_id are both empty in that case; the row is there so the next
+-- tick knows to stay out of the way.
+create table if not exists sirahos_pushes (
+  push_id      integer primary key autoincrement,
+  ist_date     text    not null,
+  project_dir  text    not null,
+  worklog_id   text    not null default '',
+  hours        real    not null default 0,
+  task_count   integer not null default 0,
+  notes_sha    text    not null default '',
+  pushed_at    real    not null default 0,
+  skip         integer not null default 0,
+  last_error   text    not null default '',
+  unique (ist_date, project_dir)
+);
+
+create index if not exists sirahos_pushes_date_idx
+  on sirahos_pushes (ist_date desc);
 """
 
 
@@ -336,6 +369,11 @@ def _migrate(conn: sqlite3.Connection, found: int) -> None:
         # next person reading this does not conclude v4 was a no-op and
         # "tidy" the table into a rebuild: an issued credential cannot be
         # regenerated from the event log the way an event row can.
+        pass
+    if found < 6:
+        # `sirahos_pushes` is additive. A WorkLog that was already posted to
+        # SirahOS is not derivable from the event log -- SirahOS owns the id
+        # it minted -- so a rebuild would mean posting every day again.
         pass
     conn.commit()
 
@@ -715,6 +753,163 @@ def brief(proj: str, conn: sqlite3.Connection | None = None) -> dict:
             "decisions": decisions,
             "recent": recent_observations(proj, limit=5, conn=conn),
         }
+    finally:
+        if own:
+            conn.close()
+
+
+# ------------------------------------------------------------- SirahOS pushes --
+
+
+def sirahos_push_for(
+    ist_date: str,
+    project_dir: str,
+    conn: sqlite3.Connection | None = None,
+) -> dict | None:
+    """What this laptop has already told SirahOS about a (day, folder).
+
+    Returns ``None`` when no row exists. A ``skip=1`` row is returned the
+    same as any other so the caller can decide to stay out of the way.
+    """
+    own = conn is None
+    conn = conn or connect()
+    try:
+        row = conn.execute(
+            "select push_id, ist_date, project_dir, worklog_id, hours, "
+            "task_count, notes_sha, pushed_at, skip, last_error "
+            "from sirahos_pushes where ist_date=? and project_dir=?",
+            (ist_date, project_dir),
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        if own:
+            conn.close()
+
+
+def sirahos_record_push(
+    ist_date: str,
+    project_dir: str,
+    worklog_id: str,
+    hours: float,
+    task_count: int,
+    notes_sha: str,
+    conn: sqlite3.Connection | None = None,
+) -> int:
+    """Record that a WorkLog was created on SirahOS for (day, folder).
+
+    Idempotent on the UNIQUE (ist_date, project_dir): a second call for the
+    same key updates the row rather than raising, so a retry that reaches
+    SirahOS twice (the first return packet lost) overwrites the stale id
+    with the freshest one.
+    """
+    own = conn is None
+    conn = conn or connect()
+    try:
+        conn.execute(
+            "insert into sirahos_pushes "
+            "(ist_date, project_dir, worklog_id, hours, task_count, "
+            " notes_sha, pushed_at, skip, last_error) "
+            "values (?, ?, ?, ?, ?, ?, ?, 0, '') "
+            "on conflict (ist_date, project_dir) do update set "
+            "  worklog_id=excluded.worklog_id, "
+            "  hours=excluded.hours, "
+            "  task_count=excluded.task_count, "
+            "  notes_sha=excluded.notes_sha, "
+            "  pushed_at=excluded.pushed_at, "
+            "  skip=0, "
+            "  last_error=''",
+            (ist_date, project_dir, worklog_id, hours, task_count,
+             notes_sha, time.time()),
+        )
+        conn.commit()
+        row = conn.execute(
+            "select push_id from sirahos_pushes "
+            "where ist_date=? and project_dir=?",
+            (ist_date, project_dir),
+        ).fetchone()
+        return int(row["push_id"]) if row else 0
+    finally:
+        if own:
+            conn.close()
+
+
+def sirahos_record_error(
+    ist_date: str,
+    project_dir: str,
+    error: str,
+    conn: sqlite3.Connection | None = None,
+) -> None:
+    """Note a failed push so the dashboard can show *why*.
+
+    An error row sits with ``worklog_id=''`` and does not satisfy the "already
+    posted" check, so the next tick retries. The last error text is kept for
+    diagnosis.
+    """
+    own = conn is None
+    conn = conn or connect()
+    try:
+        conn.execute(
+            "insert into sirahos_pushes "
+            "(ist_date, project_dir, worklog_id, hours, task_count, "
+            " notes_sha, pushed_at, skip, last_error) "
+            "values (?, ?, '', 0, 0, '', 0, 0, ?) "
+            "on conflict (ist_date, project_dir) do update set "
+            "  last_error=excluded.last_error",
+            (ist_date, project_dir, error[:500]),
+        )
+        conn.commit()
+    finally:
+        if own:
+            conn.close()
+
+
+def sirahos_set_skip(
+    ist_date: str,
+    project_dir: str,
+    skip: bool,
+    conn: sqlite3.Connection | None = None,
+) -> None:
+    """Mark a day/folder as "don't push" (or clear that mark).
+
+    When ``skip`` is True, any WorkLog this laptop already posted for that key
+    is left on SirahOS -- the user may want to edit it by hand. We only stop
+    making NEW pushes. The user can delete the WorkLog from SirahOS directly.
+    """
+    own = conn is None
+    conn = conn or connect()
+    try:
+        conn.execute(
+            "insert into sirahos_pushes "
+            "(ist_date, project_dir, worklog_id, hours, task_count, "
+            " notes_sha, pushed_at, skip, last_error) "
+            "values (?, ?, '', 0, 0, '', 0, ?, '') "
+            "on conflict (ist_date, project_dir) do update set "
+            "  skip=excluded.skip",
+            (ist_date, project_dir, 1 if skip else 0),
+        )
+        conn.commit()
+    finally:
+        if own:
+            conn.close()
+
+
+def sirahos_recent_pushes(
+    limit: int = 50,
+    conn: sqlite3.Connection | None = None,
+) -> list[dict]:
+    """Latest push attempts, newest first. For the dashboard."""
+    own = conn is None
+    conn = conn or connect()
+    try:
+        rows = conn.execute(
+            "select ist_date, project_dir, worklog_id, hours, task_count, "
+            "pushed_at, skip, last_error "
+            "from sirahos_pushes "
+            "order by ist_date desc, project_dir "
+            "limit ?",
+            (max(1, int(limit)),),
+        ).fetchall()
+        return [dict(r) for r in rows]
     finally:
         if own:
             conn.close()

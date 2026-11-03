@@ -71,8 +71,9 @@ $SourceDir  = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Pat
 $StateDir   = Join-Path $env:LOCALAPPDATA 'SystemMonitorWidget'
 $InstallDir = Join-Path $StateDir 'agent'
 $TeamFile   = Join-Path $StateDir 'team.json'
-$SyncTask   = 'AgentMonitorSync'
-$TileTask   = 'SystemMonitorWidget'
+$SyncTask    = 'AgentMonitorSync'
+$TileTask    = 'SystemMonitorWidget'
+$BridgeTask  = 'SirahOSBridge'
 
 function Write-Step { param($Text) Write-Host "==> $Text" -ForegroundColor Cyan }
 function Write-Ok   { param($Text) Write-Host "    $Text" -ForegroundColor Green }
@@ -105,7 +106,7 @@ function Resolve-Python {
 if ($Uninstall) {
     Write-Step 'Removing the agent monitor'
 
-    foreach ($task in @($SyncTask, $TileTask)) {
+    foreach ($task in @($SyncTask, $TileTask, $BridgeTask)) {
         $existing = schtasks /Query /TN $task 2>$null
         if ($LASTEXITCODE -eq 0) {
             schtasks /Delete /TN $task /F | Out-Null
@@ -191,7 +192,10 @@ $reporterFiles = @(
 $fullFiles = @(
     'widget.py', 'dashboard.py', 'charts.py', 'viz.py', 'webserver.py',
     'memory.py', 'deploy.py', 'run.vbs', 'run.bat', 'schema.sql',
-    'tokens.py', 'vapid.py', 'push.py', 'pwa.py'
+    'tokens.py', 'vapid.py', 'push.py', 'pwa.py',
+    # SirahOS WorkLog bridge: client + aggregator. Scheduled as its own
+    # task so an install can enable it independently of the Supabase sync.
+    'sirahos.py', 'bridge.py'
 )
 
 $wanted = $reporterFiles
@@ -300,6 +304,27 @@ if ($LASTEXITCODE -eq 0) {
 }
 
 if ($Mode -eq 'full') {
+    # The SirahOS WorkLog bridge runs on its own cadence -- 15 minutes is
+    # plenty, since the bridge only talks to today-minus-one; today itself
+    # is left as a moving target. The task is skipped on a reporter-only
+    # install, because the bridge needs the user to sign in to SirahOS from
+    # the dashboard first, and a reporter install has no dashboard.
+    Write-Step 'Scheduling the SirahOS WorkLog bridge'
+    $bridgeScript = Join-Path $InstallDir 'bridge.py'
+    if (Test-Path $bridgeScript) {
+        $bridgeCommand = "`"$pythonw`" `"$bridgeScript`" push"
+        schtasks /Query /TN $BridgeTask 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0) { schtasks /Delete /TN $BridgeTask /F | Out-Null }
+        schtasks /Create /TN $BridgeTask /TR $bridgeCommand /SC MINUTE /MO 15 /F | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Ok "scheduled task $BridgeTask runs every 15 minutes"
+        } else {
+            Write-Warn "could not create $BridgeTask -- run it by hand with: python `"$bridgeScript`" push"
+        }
+    } else {
+        Write-Warn 'bridge.py missing -- the SirahOS WorkLog bridge is not installed'
+    }
+
     Write-Step 'Setting the tile to start at logon'
     $runVbs = Join-Path $InstallDir 'run.vbs'
     if (Test-Path $runVbs) {

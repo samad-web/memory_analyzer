@@ -179,6 +179,15 @@ DEFAULTS = {
     # Upload to the team project on this cadence, when team.json says to.
     "sync_enabled": True,
     "sync_seconds": 60,
+    # SirahOS WorkLog bridge. Off by default: nothing goes out until the user
+    # fills in a URL and signs in. ``folder_project_map`` is user-maintained
+    # (see bridge.py).
+    "sirahos": {
+        "api_url": "",
+        "last_signed_in_as": "",
+        "folder_project_map": {},
+        "share_prompts": True,
+    },
 }
 
 

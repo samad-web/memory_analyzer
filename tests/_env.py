@@ -28,6 +28,7 @@ if PROJECT not in sys.path:
 _MODULES = (
     "events", "store", "agent_alert", "observe", "goals", "context",
     "stats", "notify", "mcp_server", "tokens", "vapid", "pwa", "push",
+    "sirahos", "bridge",
 )
 
 

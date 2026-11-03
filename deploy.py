@@ -81,6 +81,11 @@ FULL_EXTRA_FILES = (
     "run.vbs",
     "run.bat",
     "schema.sql",
+    # The SirahOS WorkLog bridge: the HTTPS client, the aggregator, and
+    # nothing else. The bridge is scheduled by install.ps1 as its own task,
+    # so a reporter-only install does not need it; a full install does.
+    "sirahos.py",
+    "bridge.py",
 )
 
 FULL_EXTRA_DIRS = ("web",)
