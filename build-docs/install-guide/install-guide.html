@@ -1,0 +1,866 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Memory Analyzer — Install Guide</title>
+<meta name="description" content="How to install Memory Analyzer, sign in to SirahOS, and have your Claude Code hours logged automatically.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  /* Design tokens -- same shape as SirahOS src/index.css so this guide
+     reads as part of the same product family. */
+  :root {
+    --background: 220 20% 97%;
+    --foreground: 220 25% 10%;
+    --card: 0 0% 100%;
+    --card-foreground: 220 25% 10%;
+    --primary: 250 75% 58%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 15% 93%;
+    --muted: 220 15% 94%;
+    --muted-foreground: 220 10% 38%;
+    --accent: 250 60% 96%;
+    --accent-foreground: 250 75% 58%;
+    --border: 220 15% 91%;
+    --ring: 250 75% 58%;
+    --radius: 0.75rem;
+    --money-in: 160 60% 40%;
+    --warning: 38 92% 50%;
+    --gradient-start: 250 75% 58%;
+    --gradient-end: 290 70% 55%;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: "Inter", "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+    letter-spacing: -0.01em;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  h1, h2, h3, h4 {
+    font-family: "Plus Jakarta Sans", "Inter", sans-serif;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin: 0;
+    color: hsl(var(--foreground));
+  }
+  code, .mono { font-family: "IBM Plex Mono", "SF Mono", Consolas, monospace; }
+  a { color: hsl(var(--primary)); text-decoration: none; font-weight: 500; }
+  a:hover { text-decoration: underline; }
+
+  .page { max-width: 960px; margin: 0 auto; padding: 48px 32px 80px; }
+
+  /* ------- cover ------- */
+  .cover {
+    background: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
+    border-radius: calc(var(--radius) + 0.75rem);
+    padding: 56px 48px 48px;
+    display: flex;
+    gap: 32px;
+    align-items: center;
+    margin-bottom: 40px;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 2px 4px 0 hsl(var(--foreground) / 0.04);
+  }
+  .cover::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(circle at 100% 0%,
+        hsl(var(--gradient-end) / 0.08),
+        transparent 40%),
+      radial-gradient(circle at 0% 100%,
+        hsl(var(--gradient-start) / 0.08),
+        transparent 40%);
+    pointer-events: none;
+  }
+  .cover > * { position: relative; }
+  .cover img {
+    width: 112px; height: auto;
+    border-radius: 20px;
+    box-shadow: 0 10px 30px -8px hsl(var(--primary) / 0.4);
+  }
+  .cover-text .eyebrow {
+    font-size: 11.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    font-weight: 700;
+    color: hsl(var(--primary));
+    margin-bottom: 10px;
+  }
+  .cover-text h1 {
+    font-size: 36px;
+    line-height: 1.1;
+    background: linear-gradient(135deg, hsl(var(--gradient-start)), hsl(var(--gradient-end)));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    color: transparent;
+  }
+  .cover-text .subtitle {
+    color: hsl(var(--muted-foreground));
+    font-size: 17px;
+    margin: 10px 0 0;
+  }
+  .cover-text .meta {
+    display: flex; gap: 10px; margin-top: 18px;
+  }
+  .pill {
+    display: inline-flex; align-items: center;
+    padding: 4px 10px;
+    border-radius: 9999px;
+    font-size: 11.5px;
+    font-weight: 600;
+    background: hsl(var(--primary) / 0.1);
+    color: hsl(var(--primary));
+  }
+  .pill.good  { background: hsl(var(--money-in) / 0.1); color: hsl(var(--money-in)); }
+  .pill.warn  { background: hsl(var(--warning) / 0.12); color: hsl(var(--warning)); }
+  .pill.muted { background: hsl(var(--muted)); color: hsl(var(--muted-foreground)); }
+
+  /* ------- TOC ------- */
+  nav.toc {
+    background: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
+    border-radius: calc(var(--radius) + 0.25rem);
+    padding: 20px 24px;
+    margin-bottom: 36px;
+  }
+  nav.toc h3 {
+    font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: hsl(var(--muted-foreground)); font-weight: 700;
+    margin-bottom: 10px;
+  }
+  nav.toc ol { margin: 0; padding-left: 20px; }
+  nav.toc li { margin-bottom: 4px; }
+
+  /* ------- sections ------- */
+  section.step, section.block {
+    background: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
+    border-radius: calc(var(--radius) + 0.25rem);
+    padding: 32px;
+    margin-bottom: 28px;
+    box-shadow: 0 1px 2px 0 hsl(var(--foreground) / 0.03);
+  }
+  section.step { position: relative; padding-left: 96px; }
+  section.step .num {
+    position: absolute;
+    top: 32px; left: 32px;
+    width: 44px; height: 44px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, hsl(var(--gradient-start)), hsl(var(--gradient-end)));
+    color: #fff;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-family: "Plus Jakarta Sans", sans-serif;
+    font-weight: 800;
+    font-size: 20px;
+    box-shadow: 0 6px 16px -4px hsl(var(--primary) / 0.5);
+  }
+  section.step h2, section.block h2 {
+    font-size: 22px; margin-bottom: 6px;
+  }
+  section.step .goal, section.block .goal {
+    color: hsl(var(--muted-foreground));
+    font-size: 14px;
+    margin: 0 0 20px;
+  }
+
+  p { margin: 12px 0; }
+  ul, ol { padding-left: 22px; }
+  li { margin-bottom: 6px; }
+  strong { font-weight: 600; }
+
+  pre, .snippet {
+    background: hsl(var(--muted));
+    border: 1px solid hsl(var(--border));
+    border-radius: 10px;
+    padding: 14px 16px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 13px;
+    overflow-x: auto;
+    margin: 14px 0;
+  }
+  :not(pre) > code {
+    background: hsl(var(--muted));
+    border: 1px solid hsl(var(--border));
+    border-radius: 6px;
+    padding: 1px 6px;
+    font-size: 13.5px;
+  }
+
+  /* ------- screenshot placeholder ------- */
+  .screenshot {
+    margin: 22px 0 6px;
+    background: hsl(var(--muted));
+    border: 2px dashed hsl(var(--border));
+    border-radius: 14px;
+    padding: 56px 24px;
+    text-align: center;
+    color: hsl(var(--muted-foreground));
+    font-size: 13.5px;
+    position: relative;
+  }
+  .screenshot::before {
+    content: "SCREENSHOT";
+    position: absolute;
+    top: 10px; left: 14px;
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    font-weight: 700;
+    color: hsl(var(--primary));
+  }
+  .screenshot b {
+    display: block;
+    color: hsl(var(--foreground));
+    font-size: 15px;
+    margin-bottom: 6px;
+    font-family: "Plus Jakarta Sans", sans-serif;
+    font-weight: 700;
+  }
+
+  /* ------- callouts ------- */
+  .callout {
+    display: grid;
+    grid-template-columns: 44px 1fr;
+    gap: 14px;
+    padding: 16px 18px;
+    border-radius: 12px;
+    margin: 18px 0;
+    font-size: 14px;
+  }
+  .callout .icon {
+    width: 36px; height: 36px;
+    border-radius: 10px;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-weight: 700;
+  }
+  .callout.note {
+    background: hsl(var(--primary) / 0.06);
+    border: 1px solid hsl(var(--primary) / 0.2);
+  }
+  .callout.note .icon {
+    background: hsl(var(--primary) / 0.15);
+    color: hsl(var(--primary));
+  }
+  .callout.warn {
+    background: hsl(var(--warning) / 0.08);
+    border: 1px solid hsl(var(--warning) / 0.25);
+  }
+  .callout.warn .icon {
+    background: hsl(var(--warning) / 0.2);
+    color: hsl(var(--warning));
+  }
+  .callout.tip {
+    background: hsl(var(--money-in) / 0.06);
+    border: 1px solid hsl(var(--money-in) / 0.2);
+  }
+  .callout.tip .icon {
+    background: hsl(var(--money-in) / 0.15);
+    color: hsl(var(--money-in));
+  }
+  .callout b { display: block; margin-bottom: 2px; }
+
+  /* ------- feature tiles ------- */
+  .features {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 16px;
+    margin-top: 16px;
+  }
+  .feature {
+    background: hsl(var(--background));
+    border: 1px solid hsl(var(--border));
+    border-radius: 14px;
+    padding: 20px;
+  }
+  .feature .ic {
+    width: 36px; height: 36px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, hsl(var(--gradient-start)), hsl(var(--gradient-end)));
+    color: #fff;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 15px;
+    margin-bottom: 12px;
+  }
+  .feature h4 { font-size: 15px; margin-bottom: 4px; }
+  .feature p { font-size: 13.5px; color: hsl(var(--muted-foreground)); margin: 0; }
+
+  /* ------- key-value lookup ------- */
+  table.kv {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 14px 0;
+    font-size: 14px;
+  }
+  table.kv th {
+    text-align: left;
+    font-weight: 600;
+    padding: 10px 12px;
+    border-bottom: 1px solid hsl(var(--border));
+    font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: hsl(var(--muted-foreground));
+  }
+  table.kv td {
+    padding: 10px 12px;
+    border-bottom: 1px solid hsl(var(--border));
+    vertical-align: top;
+  }
+  table.kv tr:last-child td { border-bottom: 0; }
+  table.kv td.mono { font-family: "IBM Plex Mono", monospace; font-size: 13px; }
+
+  footer.page-footer {
+    margin-top: 48px;
+    padding-top: 24px;
+    border-top: 1px solid hsl(var(--border));
+    color: hsl(var(--muted-foreground));
+    font-size: 12.5px;
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  /* ------- print ------- */
+  @media print {
+    body { font-size: 11pt; }
+    .page { padding: 0; max-width: none; }
+    .cover, nav.toc, section, .screenshot, .callout, .feature {
+      break-inside: avoid;
+      box-shadow: none !important;
+    }
+    section.step, section.block { page-break-inside: avoid; }
+    .cover { padding: 24px 28px; }
+  }
+
+  /* ------- responsive ------- */
+  @media (max-width: 720px) {
+    .page { padding: 24px 16px 60px; }
+    .cover { flex-direction: column; padding: 32px 24px; text-align: center; align-items: center; }
+    .cover-text h1 { font-size: 28px; }
+    section.step { padding: 24px 20px 24px 20px; }
+    section.step .num { position: static; margin-bottom: 14px; }
+    section.block { padding: 24px 20px; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+<!-- ======================== cover ======================== -->
+<header class="cover">
+  <img src="assets/sirah_logo.jpg" alt="Sirah Digital">
+  <div class="cover-text">
+    <div class="eyebrow">Sirah Digital · internal tool</div>
+    <h1>Memory Analyzer</h1>
+    <p class="subtitle">
+      Your Claude Code hours logged automatically to the right SirahOS
+      project — one tile, one sign-in, one install.
+    </p>
+    <div class="meta">
+      <span class="pill">v1.0</span>
+      <span class="pill good">Windows 10 / 11</span>
+      <span class="pill muted">Internal release</span>
+    </div>
+  </div>
+</header>
+
+<!-- ======================== TOC ======================== -->
+<nav class="toc">
+  <h3>Contents</h3>
+  <ol>
+    <li><a href="#what">What Memory Analyzer does for you</a></li>
+    <li><a href="#before">Before you install</a></li>
+    <li><a href="#install">Step 1 — Install from the shared drive</a></li>
+    <li><a href="#firstrun">Step 2 — First launch</a></li>
+    <li><a href="#signin">Step 3 — Sign in to SirahOS</a></li>
+    <li><a href="#map">Step 4 — Map your folders to SirahOS projects</a></li>
+    <li><a href="#verify">Step 5 — See your first auto-logged hours</a></li>
+    <li><a href="#user">How the exe knows who you are</a></li>
+    <li><a href="#functionality">What the dashboard can show you</a></li>
+    <li><a href="#faq">Common questions</a></li>
+    <li><a href="#uninstall">Uninstalling</a></li>
+  </ol>
+</nav>
+
+<!-- ======================== what ======================== -->
+<section class="block" id="what">
+  <h2>What Memory Analyzer does for you</h2>
+  <p class="goal">
+    Thirty seconds, then the detail.
+  </p>
+  <p>
+    Every time you work in a project folder with Claude Code, the tile is
+    quietly recording — <strong>which project, how long, what you asked, and
+    what the agent did</strong>. Memory Analyzer rolls those up into one
+    SirahOS <strong>WorkLog</strong> per day per project, logged as you,
+    with the hours and a summary. The <strong>SirahOS WorkLogs</strong> page
+    stays the way you already use it; nothing in your existing timesheets
+    changes.
+  </p>
+
+  <div class="features">
+    <div class="feature">
+      <div class="ic">⏱</div>
+      <h4>Automatic hour logging</h4>
+      <p>One WorkLog per calendar day per project, pushed every 15 minutes. No typing.</p>
+    </div>
+    <div class="feature">
+      <div class="ic">🧠</div>
+      <h4>Session memory</h4>
+      <p>Every turn's files touched, commands run and decisions made, searchable across every project.</p>
+    </div>
+    <div class="feature">
+      <div class="ic">📊</div>
+      <h4>Live tile</h4>
+      <p>Always-on-top widget shows tokens used, hours worked, and when an agent is blocked on you.</p>
+    </div>
+    <div class="feature">
+      <div class="ic">🔔</div>
+      <h4>Blocked-agent alerts</h4>
+      <p>A tray toast or phone push when Claude is waiting on an answer, so you don't miss it.</p>
+    </div>
+    <div class="feature">
+      <div class="ic">👥</div>
+      <h4>Team visibility</h4>
+      <p>Managers see hours by member and by project — same data as the SirahOS Team tab.</p>
+    </div>
+    <div class="feature">
+      <div class="ic">🔒</div>
+      <h4>Yours, locally</h4>
+      <p>Memory and events live on your laptop. Only daily WorkLogs leave, under your own account.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ======================== before ======================== -->
+<section class="block" id="before">
+  <h2>Before you install</h2>
+  <p class="goal">A short checklist so Step 1 lands clean.</p>
+  <ul>
+    <li>A <strong>Windows 10 or 11</strong> laptop (every teammate is on one).</li>
+    <li>Your <strong>SirahOS email + password</strong>. The same one you use at
+      <a href="https://sirahos.sirahdigital.in">sirahos.sirahdigital.in</a>.
+      Your account must be <code>ACTIVE</code> — ask an admin if unsure.</li>
+    <li>A location on disk where your Claude Code projects live (anywhere
+      is fine; the tile reads them as you open them).</li>
+    <li>About <strong>5 minutes</strong>, including the first push you'll
+      see land in SirahOS WorkLogs.</li>
+  </ul>
+  <div class="callout note">
+    <span class="icon">i</span>
+    <div>
+      <b>Admin step, not yours</b>
+      No scheduled task, no registry edit, no service to start. The installer
+      sets everything up under your own Windows user — no admin rights
+      needed for the default install.
+    </div>
+  </div>
+</section>
+
+<!-- ======================== step 1 ======================== -->
+<section class="step" id="install">
+  <span class="num">1</span>
+  <h2>Install from the shared drive</h2>
+  <p class="goal">Double-click the installer. Dismiss SmartScreen. Pick two options. Done.</p>
+
+  <ol>
+    <li>Open the shared drive location where the installer lives
+        (your admin will send the link — usually <code>\\sirahdigital-nas\installers\MemoryAnalyzerSetup.exe</code>).</li>
+    <li>Double-click <strong>MemoryAnalyzerSetup.exe</strong>.</li>
+    <li>Windows SmartScreen may show
+        <em>“Windows protected your PC”</em>. This is normal for internal
+        software — the installer is not signed with a public EV certificate.
+        Click <strong>More info</strong>, then <strong>Run anyway</strong>.</li>
+  </ol>
+
+  <div class="screenshot">
+    <b>SmartScreen dialog</b>
+    “Windows protected your PC” → “More info” link → “Run anyway” button
+  </div>
+
+  <ol start="4">
+    <li>In the installer, keep the default install location
+        (<code class="mono">%LOCALAPPDATA%\MemoryAnalyzer</code>) and click
+        <strong>Next</strong>.</li>
+    <li>On the <strong>Select Additional Tasks</strong> page, keep both
+        default ticks:
+        <ul>
+          <li><strong>Push WorkLogs to SirahOS every 15 minutes</strong>
+              (SirahOSBridge task).</li>
+          <li><strong>Start Memory Analyzer at Windows logon</strong>
+              (so the tile is there every morning).</li>
+        </ul>
+    </li>
+    <li>Click <strong>Install</strong> and wait ~30 seconds.</li>
+    <li>Leave the <strong>Launch Memory Analyzer and open the SirahOS
+        sign-in</strong> option ticked and click <strong>Finish</strong>.</li>
+  </ol>
+
+  <div class="screenshot">
+    <b>Installer — "Select Additional Tasks" page</b>
+    Both "Push WorkLogs..." and "Start at logon" ticked.
+  </div>
+
+  <div class="callout warn">
+    <span class="icon">!</span>
+    <div>
+      <b>Don't elevate unless asked</b>
+      If a UAC prompt appears, cancel it. The default install is per-user
+      and does not need admin — if the prompt showed up, you probably
+      changed the install location to Program Files. Pick the default
+      instead.
+    </div>
+  </div>
+</section>
+
+<!-- ======================== step 2 ======================== -->
+<section class="step" id="firstrun">
+  <span class="num">2</span>
+  <h2>First launch</h2>
+  <p class="goal">A small floating tile appears. Open the dashboard from its menu.</p>
+
+  <p>
+    When the installer finishes, a small <strong>violet floating widget</strong>
+    appears in the top-right of your screen. That's the tile.
+  </p>
+
+  <div class="screenshot">
+    <b>The tile, first time</b>
+    Small floating widget showing CPU · RAM · GPU · tokens today.
+  </div>
+
+  <ol>
+    <li>Right-click the tile.</li>
+    <li>Click <strong>Open dashboard</strong>. Your default browser opens
+        the local dashboard at
+        <code class="mono">http://127.0.0.1:8765/</code>.</li>
+  </ol>
+
+  <div class="callout tip">
+    <span class="icon">✓</span>
+    <div>
+      <b>The tile won't drag away from a screen edge if locked</b>
+      Right-click → <em>Lock position</em>. The tile also hides from screen
+      capture by default, so a video call never shows your dashboard.
+    </div>
+  </div>
+</section>
+
+<!-- ======================== step 3 ======================== -->
+<section class="step" id="signin">
+  <span class="num">3</span>
+  <h2>Sign in to SirahOS</h2>
+  <p class="goal">One password, one time. The tile keeps a token, not your password.</p>
+
+  <ol>
+    <li>In the dashboard, click the <strong>SirahOS</strong> tab in the
+        top bar.</li>
+    <li>Enter your SirahOS <strong>email</strong> and <strong>password</strong>
+        — the same ones you use at sirahos.sirahdigital.in.</li>
+    <li>Click <strong>Sign in</strong>.</li>
+  </ol>
+
+  <div class="screenshot">
+    <b>SirahOS tab — sign-in card</b>
+    Email + password form on a violet-tinted surface-elevated card.
+  </div>
+
+  <p>
+    After a second or two the form disappears and the mapping panel shows up
+    with every project you can log work against on SirahOS.
+  </p>
+
+  <div class="callout note">
+    <span class="icon">🔒</span>
+    <div>
+      <b>Your password is sent once and discarded</b>
+      SirahOS exchanges it for a short-lived access token (JWT). Only that
+      token is stored on your laptop, encrypted via Windows DPAPI — meaning
+      only your own Windows user account can decrypt it. The password itself
+      never touches the disk.
+    </div>
+  </div>
+</section>
+
+<!-- ======================== step 4 ======================== -->
+<section class="step" id="map">
+  <span class="num">4</span>
+  <h2>Map your folders to SirahOS projects</h2>
+  <p class="goal">
+    Tell the bridge: when I work in this folder on disk, log the hours
+    against this SirahOS project.
+  </p>
+
+  <p>
+    The dashboard shows one row per folder it has seen you work in. On the
+    left is the folder name on disk (<code>voicetranscriber</code>). On the
+    right is a dropdown of every SirahOS project you can log work against.
+  </p>
+
+  <div class="screenshot">
+    <b>Folder → SirahOS project mapping</b>
+    e.g. <code>voicetranscriber → AuraTel · Client X</code>,
+    <code>WealthOS-Mobile → WealthOS Mobile · Client Y</code>.
+  </div>
+
+  <ol>
+    <li>For each folder you care about, pick the matching SirahOS project
+        from the dropdown.</li>
+    <li>Leave the dropdown as <strong>General (no project)</strong> for
+        folders that are not billable (sandboxes, experiments). Hours logged
+        there land in SirahOS as a "General" entry.</li>
+    <li>Click <strong>Save mapping</strong>.</li>
+    <li>Click <strong>Push now</strong> to send everything that is already
+        on disk (optional — the scheduled task will do it on the next
+        15-minute tick anyway).</li>
+  </ol>
+
+  <div class="callout tip">
+    <span class="icon">✓</span>
+    <div>
+      <b>Folders are case-sensitive</b>
+      The disk folder <code>voicetranscriber</code> is a different mapping
+      from <code>VoiceTranscriber</code>. If you renamed a repo, map the
+      new name — your old history stays on SirahOS unchanged.
+    </div>
+  </div>
+</section>
+
+<!-- ======================== step 5 ======================== -->
+<section class="step" id="verify">
+  <span class="num">5</span>
+  <h2>See your first auto-logged hours</h2>
+  <p class="goal">Open SirahOS and watch a WorkLog appear.</p>
+
+  <ol>
+    <li>Go to <a href="https://sirahos.sirahdigital.in/worklogs">sirahos.sirahdigital.in/worklogs</a>.</li>
+    <li>Pick <strong>My logs</strong>, then the current month.</li>
+    <li>You should see a WorkLog for each day you ran Claude Code, tagged
+        to the right project, with the right hours, with a note listing the
+        turns you ran.</li>
+  </ol>
+
+  <div class="screenshot">
+    <b>SirahOS WorkLogs — your entries</b>
+    One entry per day per project, "N Claude Code turns, Xh Ym total",
+    followed by a short bullet list of what you asked each turn.
+  </div>
+
+  <div class="callout note">
+    <span class="icon">i</span>
+    <div>
+      <b>Today's hours are not posted until tomorrow</b>
+      Today is a moving target — more turns could land this afternoon — so
+      the bridge waits until the IST day rolls over before finalising a
+      WorkLog for it. You will see yesterday's hours by 00:15 IST.
+    </div>
+  </div>
+</section>
+
+<!-- ======================== user config ======================== -->
+<section class="block" id="user">
+  <h2>How the exe knows who you are</h2>
+  <p class="goal">
+    One installer, every teammate. The exe becomes "yours" through three
+    small per-user pieces of state.
+  </p>
+  <table class="kv">
+    <thead>
+      <tr><th>Piece of state</th><th>Where it lives</th><th>How it is set</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Windows user</strong></td>
+        <td class="mono">%USERNAME%</td>
+        <td>Set by Windows at login. Decides which <code>%LOCALAPPDATA%</code>
+            tree the tile reads and writes.</td>
+      </tr>
+      <tr>
+        <td><strong>Device id</strong></td>
+        <td class="mono">%LOCALAPPDATA%\SystemMonitorWidget\device.json</td>
+        <td>Minted on first launch, random, never changes. Keys the team
+            dashboard rows so renaming yourself does not fork your history.</td>
+      </tr>
+      <tr>
+        <td><strong>Member name</strong></td>
+        <td class="mono">%LOCALAPPDATA%\SystemMonitorWidget\team.json</td>
+        <td>Falls back to <code>%USERNAME%</code>. Admins may pre-fill it
+            via <code class="mono">install.ps1 -Member "Jane Smith"</code>.</td>
+      </tr>
+      <tr>
+        <td><strong>SirahOS identity</strong></td>
+        <td class="mono">%LOCALAPPDATA%\SystemMonitorWidget\sirahos.jwt.json</td>
+        <td>Decided by your sign-in (Step 3). WorkLogs are created on
+            SirahOS <strong>as this user</strong>.</td>
+      </tr>
+      <tr>
+        <td><strong>Folder → project map</strong></td>
+        <td class="mono">%LOCALAPPDATA%\MemoryAnalyzer\config.json</td>
+        <td>Edited from the SirahOS tab (Step 4).</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    Because every piece of state is scoped to your Windows user, two
+    teammates sharing a laptop (e.g. a conference room PC) each get their
+    own tile, their own SirahOS session, and their own WorkLogs — no
+    cross-contamination.
+  </p>
+  <div class="callout tip">
+    <span class="icon">✓</span>
+    <div>
+      <b>Admin shortcut: pre-configuring an install</b>
+      For a batch install, open <code>install\install.ps1</code> on the
+      shared drive and run:
+      <pre>powershell -ExecutionPolicy Bypass -File .\install.ps1 `
+  -Mode full -Member "Jane Smith" -SyncSeconds 60</pre>
+      Everything the installer prompts for can be supplied as a flag.
+    </div>
+  </div>
+</section>
+
+<!-- ======================== dashboard functionality ======================== -->
+<section class="block" id="functionality">
+  <h2>What the dashboard can show you</h2>
+  <p class="goal">
+    Six tabs. One hero at the top of each so you know which page you are on.
+  </p>
+
+  <table class="kv">
+    <thead>
+      <tr><th>Tab</th><th>What it shows</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Overview</strong></td>
+        <td>Finished turns, tokens, cost, median task time, reply time,
+            tool-calls per task — summed over the selected period.
+            A trend chart, token-by-model donut, token-by-project bars,
+            and a hour-of-day heat row.</td>
+      </tr>
+      <tr>
+        <td><strong>Tasks</strong></td>
+        <td>Every finished Claude Code turn as a sortable table — filter
+            by project, member, model, or any word in the prompt.</td>
+      </tr>
+      <tr>
+        <td><strong>Memory</strong></td>
+        <td>Search what past turns did: files touched, commands run,
+            decisions made, test results. Not clamped to the selected
+            period — memory is "whenever".</td>
+      </tr>
+      <tr>
+        <td><strong>Team</strong></td>
+        <td>Devices on your team, their live sessions, machine health
+            (CPU/RAM/GPU), and token/project breakdown by member.</td>
+      </tr>
+      <tr>
+        <td><strong>SirahOS</strong></td>
+        <td>Sign in, map folders, see which WorkLogs the bridge has
+            pushed and whether any failed.</td>
+      </tr>
+      <tr>
+        <td><strong>Tile</strong></td>
+        <td>Appearance (opacity, scale), behaviour (click-through, hide
+            from capture), and push notifications for blocked-agent alerts.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="screenshot">
+    <b>The dashboard — Overview</b>
+    Hero header, six stat tiles, trend chart, token-by-model donut.
+    Light and dark themes both supported via the toggle in the top bar.
+  </div>
+
+  <div class="callout note">
+    <span class="icon">🌓</span>
+    <div>
+      <b>Light / dark theme toggle</b>
+      In the top bar, next to <em>Sync now</em>, a sun/moon button flips
+      between themes. The choice is remembered per browser.
+    </div>
+  </div>
+</section>
+
+<!-- ======================== faq ======================== -->
+<section class="block" id="faq">
+  <h2>Common questions</h2>
+
+  <h4 style="margin-top:14px">I signed in to SirahOS last week but today I see "Sign in" again.</h4>
+  <p>Your SirahOS session has expired, or an admin revoked it. Sign in
+     again — your folder → project mapping is kept.</p>
+
+  <h4>A WorkLog I didn't want shows up on SirahOS. How do I stop it recurring?</h4>
+  <p>Delete the WorkLog on SirahOS as usual. On the tile, open
+     <strong>SirahOS → Recent pushes</strong>, find the day, and click
+     <em>Don't push this day</em>. The bridge will leave that day alone.</p>
+
+  <h4>Can I edit the auto-generated notes?</h4>
+  <p>Yes — just edit the WorkLog on SirahOS directly. The bridge only
+     touches WorkLogs it created and never overwrites one you have edited.</p>
+
+  <h4>Does Memory Analyzer slow down Claude Code?</h4>
+  <p>No. Hooks only write a short line to a local log and exit; the push
+     runs on a separate schedule. On a benchmark the per-hook overhead is
+     a few milliseconds.</p>
+
+  <h4>What happens to prompts I type with sensitive text?</h4>
+  <p>Prompt text is stored locally. It is sent to SirahOS <strong>only</strong>
+     as part of the WorkLog's notes field (truncated to 120 characters per
+     line). To turn that off, open <strong>SirahOS → Settings</strong> on
+     the dashboard and switch off <em>Share prompt text</em> — your WorkLog
+     will say "(prompt hidden)" instead.</p>
+
+  <h4>I work from home on a tethered phone. Does the bridge still push?</h4>
+  <p>Yes — it is plain outbound HTTPS to <code>sirahos.sirahdigital.in</code>,
+     the same thing your browser uses. No tunnel, no inbound ports.</p>
+
+  <h4>My laptop was offline all week. Will I lose those WorkLogs?</h4>
+  <p>No. The bridge looks back 14 days on every tick, so the first time
+     it reaches SirahOS after an offline stretch it posts everything that
+     is missing.</p>
+
+  <h4>Can two teammates share one install?</h4>
+  <p>Not from the same Windows user account. Each teammate signs in to
+     Windows as themselves and installs under that account — their SirahOS
+     session, mapping and local store are all per-user.</p>
+</section>
+
+<!-- ======================== uninstall ======================== -->
+<section class="block" id="uninstall">
+  <h2>Uninstalling</h2>
+  <p class="goal">All traces removed in two clicks.</p>
+  <ol>
+    <li>Open <strong>Settings → Apps → Installed apps</strong>.</li>
+    <li>Find <strong>Memory Analyzer</strong>, click the three dots,
+        <strong>Uninstall</strong>.</li>
+  </ol>
+  <p>
+    The uninstaller removes the install directory, the SirahOSBridge
+    scheduled task, and the per-user state under
+    <code class="mono">%LOCALAPPDATA%\SystemMonitorWidget</code>
+    (local events log, memory store, DPAPI-protected SirahOS token).
+    WorkLogs already posted to SirahOS are <strong>not</strong> deleted —
+    they are your work history on the server.
+  </p>
+</section>
+
+<footer class="page-footer">
+  <div>Memory Analyzer v1.0 · Sirah Digital internal release · 2026-11-04</div>
+  <div>Trouble installing? Ping the engineering channel.</div>
+</footer>
+
+</div>
+</body>
+</html>
