@@ -34,9 +34,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import events
 import identity
+import push
+import pwa
 import stats
 import sync
 import tokens
+import vapid
 import viz
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -49,6 +52,21 @@ DEFAULT_BIND = "127.0.0.1"
 # are open on the same window. Results are cached for this long, keyed by the
 # query that produced them.
 CACHE_TTL = 3.0
+
+# Served without a token. The shell only: markup, stylesheet, code, the
+# manifest and the service worker, all of which the browser fetches before any
+# page has run. Nothing here carries a prompt, a project name or a number --
+# everything that does lives under /api/ and is scoped. A test asserts this
+# exact set, so widening it has to be deliberate.
+_PUBLIC_PATHS = frozenset({
+    "/", "/index.html", "/style.css", "/theme.css", "/app.js",
+    "/manifest.webmanifest", "/sw.js", "/favicon.ico",
+})
+
+
+def _is_icon(path: str) -> bool:
+    return path.startswith("/icon-") and path.endswith(".png")
+
 
 _MIME = {
     ".html": "text/html; charset=utf-8",
@@ -97,6 +115,7 @@ class DashboardServer:
         self.token = str(cfg.get("web_token") or "")
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
+        self._watcher = None
 
     @property
     def local_only(self) -> bool:
@@ -144,9 +163,39 @@ class DashboardServer:
             target=self._server.serve_forever, name="dashboard-http", daemon=True
         )
         self._thread.start()
+        self._start_watcher()
         return self.url
 
+    def _start_watcher(self) -> None:
+        """Watch the alert mailbox and push when an agent blocks.
+
+        It lives here and not in the hook because "hooks never touch the
+        network and never block a turn" is a constraint, and a push is a
+        network call. This process is already long-running, so slowness here
+        costs nobody a turn.
+
+        Only when there is something to notify: with no subscriptions the
+        thread would be a timer that wakes up to do nothing forever.
+        """
+        if self._watcher is not None:
+            return
+        try:
+            if not push.listing():
+                return
+            self._watcher = push.Watcher()
+            self._watcher.start()
+        except Exception:  # noqa: BLE001
+            # Notifications are a convenience. The dashboard must still serve
+            # if the store is unreadable.
+            self._watcher = None
+
     def stop(self) -> None:
+        if self._watcher is not None:
+            try:
+                self._watcher.stop()
+            except Exception:  # noqa: BLE001
+                pass
+            self._watcher = None
         if self._server is not None:
             try:
                 self._server.shutdown()
@@ -155,6 +204,21 @@ class DashboardServer:
                 pass
             self._server = None
         self._thread = None
+
+    def vapid_key(self) -> str:
+        """The public key a browser subscribes with.
+
+        A new keypair invalidates every subscription made against the old one,
+        so they are cleared in the same breath rather than left to fail one at
+        a time over the following week.
+        """
+        try:
+            key = vapid.load()
+            if key.get("fresh"):
+                push.clear()
+            return key["public"]
+        except Exception:  # noqa: BLE001
+            return ""
 
     @property
     def running(self) -> bool:
@@ -446,9 +510,24 @@ class _DashboardHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802
         path = urllib.parse.urlparse(self.path).path
-        if not self._authorised(tokens.READ):
-            self._deny(tokens.READ)
-            return
+
+        # The shell is public; the data is not.
+        #
+        # This changed when the dashboard became installable. A manifest and a
+        # service worker are fetched by the browser itself, before any page
+        # has run and before a token exists anywhere, and an installed app
+        # launches at "/" with no query string -- so a gate on the shell means
+        # the icon on a home screen opens a 401 and nothing else, forever.
+        #
+        # Moving the gate is safe because the shell is markup, stylesheet and
+        # code: it holds no prompt text, no project names and no numbers.
+        # Everything that holds those is under /api/, which still demands a
+        # scope on every single request. `_PUBLIC_PATHS` is asserted by a test
+        # so this cannot quietly widen.
+        if path not in _PUBLIC_PATHS and not _is_icon(path):
+            if not self._authorised(tokens.READ):
+                self._deny(tokens.READ)
+                return
 
         if path in ("/", "/index.html"):
             self._static("index.html")
@@ -456,10 +535,26 @@ class _DashboardHandler(BaseHTTPRequestHandler):
         if path == "/theme.css":
             self._send(200, viz.theme_css().encode("utf-8"), _MIME[".css"])
             return
+        if path == "/manifest.webmanifest":
+            self._send(200,
+                       json.dumps(pwa.manifest()).encode("utf-8"),
+                       "application/manifest+json")
+            return
+        if _is_icon(path):
+            self._icon(path)
+            return
         if path.startswith("/api/"):
             self._api_get(path)
             return
         self._static(path.lstrip("/"))
+
+    def _icon(self, path: str) -> None:
+        try:
+            size = int(path[len("/icon-"):-len(".png")])
+        except ValueError:
+            self._send(404, b"not found", "text/plain; charset=utf-8")
+            return
+        self._send(200, pwa.icon(size), "image/png")
 
     def _api_get(self, path: str) -> None:
         owner = self.owner
@@ -471,6 +566,15 @@ class _DashboardHandler(BaseHTTPRequestHandler):
             self._json(owner.team_payload())
         elif path == "/api/tile":
             self._json(owner.tile_payload())
+        elif path == "/api/escalations":
+            # Straight from the mailbox, uncached: this is what the service
+            # worker reads to write a notification, and a stale answer there
+            # tells someone an agent is waiting when it is not.
+            rows = push.escalations()
+            self._json({"rows": rows, "count": len(rows)})
+        elif path == "/api/push/key":
+            self._json({"key": owner.vapid_key(),
+                        "subscriptions": len(push.listing())})
         elif path == "/api/memory":
             params = urllib.parse.parse_qs(
                 urllib.parse.urlparse(self.path).query)
@@ -499,12 +603,19 @@ class _DashboardHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         path = urllib.parse.urlparse(self.path).path
-        # Every POST changes this machine's state -- the tile, or a sync that
-        # pushes activity upstream -- so read alone is not enough for any of
-        # them. A new POST route inherits that by default rather than having
-        # to remember to ask.
-        if not self._authorised(tokens.OPERATE):
-            self._deny(tokens.OPERATE)
+        # Most POSTs change this machine's state -- the tile, or a sync that
+        # pushes activity upstream -- so read alone is not enough. A new POST
+        # route inherits that by default rather than having to remember to
+        # ask; subscribing is the one exception, and it is named rather than
+        # assumed.
+        #
+        # Asking to be notified about the board is a read channel: it grants
+        # the caller nothing they could not already see, and requiring
+        # `operate` for it would mean the token on a phone had to be able to
+        # resize the tile in order to buzz.
+        needed = tokens.READ if path == "/api/push/subscribe" else tokens.OPERATE
+        if not self._authorised(needed):
+            self._deny(needed)
             return
 
         try:
@@ -530,6 +641,19 @@ class _DashboardHandler(BaseHTTPRequestHandler):
             ok, note = owner.apply_tile(key, body.get("value"))
             owner.cache.clear()
             self._json({"ok": ok, "note": note}, 200 if ok else 400)
+            return
+        if path == "/api/push/subscribe":
+            self._json(push.subscribe(body.get("subscription") or body,
+                                      label=str(body.get("label") or "")))
+            return
+        if path == "/api/push/unsubscribe":
+            endpoint = str(body.get("endpoint") or body.get("id") or "")
+            self._json({"ok": push.unsubscribe(endpoint)})
+            return
+        if path == "/api/push/test":
+            # A real notification to every subscriber, so "is this wired up?"
+            # is answerable without blocking an agent to find out.
+            self._json(push.send_all())
             return
         if path == "/api/sync":
             # Done on the calling thread: this is an HTTP worker thread, so a

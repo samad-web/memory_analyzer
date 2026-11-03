@@ -1,5 +1,38 @@
 # Changelog
 
+## feat(pwa-and-push)
+
+Installable dashboard and Web Push for escalations. `pwa.py` (manifest and
+generated PNG icons), `vapid.py` (P-256 + RFC 6979 for the VAPID signature),
+`push.py` (subscriptions, sending, and the mailbox watcher), `web/sw.js`.
+Schema 4 -> 5, additive.
+
+Design consequences of the board's own constraints, not preferences:
+
+- The push is sent by the **dashboard server**, not the hook, because "hooks
+  never touch the network" and a push is a network call.
+- Messages carry **no payload**, because encrypting one needs AES-GCM and "no
+  new runtime dependencies" would mean hand-writing a cipher. The service
+  worker asks the dashboard what happened and falls back to generic text.
+- VAPID could not be avoided, so P-256 is implemented here -- signing only,
+  with RFC 6979 deterministic nonces, checked against the RFC's published
+  signatures for two messages.
+
+One deliberate behaviour change: **the static shell is now served without a
+token.** An installed app launches at `/` with no query string and the browser
+fetches the manifest and service worker before any page runs, so a gate there
+meant a home-screen icon opened a 401 forever. The shell carries no data;
+every `/api/` route still demands a scope, and a test asserts the public set
+exactly.
+
+Two bugs found by its own tests: a non-dict subscription body crashed
+`subscribe`, and `unsubscribe` by row id never matched because the id was
+hashed a second time.
+
+Caught by `test_deploy`'s import closure: `pwa` imports `viz`, which is not in
+the reporter bundle. `tokens`, `vapid`, `push` and `pwa` are webserver-only
+and moved to the full bundle.
+
 ## feat(scoped-tokens)
 
 `tokens.py`: hashed, scoped, revocable access tokens for the web dashboard,

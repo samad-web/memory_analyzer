@@ -31,6 +31,7 @@ Two rules learned the hard way:
 | Memory tab | `tests/test_memory.py` | pass |
 | MCP server | `tests/test_mcp.py` | pass |
 | Scoped tokens | `tests/test_tokens.py` | pass |
+| PWA and push | `tests/test_push.py` | pass |
 
 ## Failures found and fixed
 
@@ -69,3 +70,15 @@ Two rules learned the hard way:
   "never raises" but caught only `sqlite3.Error`; opening the store also
   makes a directory, so a full disk arrives as `OSError`. Found by the
   fail-closed test, which patched `connect` to raise `RuntimeError`.
+- **A non-dict subscription body crashed `push.subscribe`**, reachable
+  from the network as `{"subscription": "anything"}`.
+- **`push.unsubscribe` by row id never matched**: the id was hashed a
+  second time and compared against the digest of itself.
+- **`pwa` imports `viz`, which the reporter bundle does not ship.**
+  Caught by the import-closure test rather than on a teammate's laptop.
+  The four webserver-only modules moved to the full bundle.
+
+The crypto is the one thing that cannot be checked by agreeing with
+itself, so `tests/test_push.CurveTest` asserts RFC 6979's published `r`
+and `s` for P-256/SHA-256 on two messages. If the curve arithmetic, the
+hash handling or the nonce derivation were wrong, they could not match.

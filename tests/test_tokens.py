@@ -325,8 +325,21 @@ class HttpScopeTest(unittest.TestCase):
 
     # -- the static page is behind the same gate --------------------------
 
-    def test_the_page_itself_needs_a_token(self):
-        self.assertEqual(self.get("/")[0], 401)
+    def test_the_shell_is_public_and_the_data_is_not(self):
+        """This gate moved when the dashboard became installable.
+
+        It used to be that "/" itself demanded a token. An installed app
+        launches at "/" with no query string, and the browser fetches the
+        manifest and the service worker before any page has run, so a gate
+        there means the icon on a home screen opens a 401 and nothing else,
+        forever. The shell is markup, stylesheet and code -- it carries no
+        prompt text, no project names and no numbers -- so the gate belongs
+        on the data, which is where it now is.
+        """
+        self.assertEqual(self.get("/")[0], 200)
+        self.assertEqual(self.get("/api/summary")[0], 401)
+        self.assertEqual(self.get("/api/memory")[0], 401)
+        self.assertEqual(self.get("/api/tasks")[0], 401)
 
     def test_the_token_may_travel_in_the_query_string(self):
         """How a phone gets in from a pasted link, before it can set a header."""
@@ -361,7 +374,9 @@ class BundleTest(unittest.TestCase):
     def test_tokens_ships_in_both_file_lists(self):
         import deploy
 
-        self.assertIn("tokens.py", deploy.REPORTER_FILES)
+        # The full bundle, not the reporter one: nothing but webserver.py
+        # imports it, and a reporter-only install serves no HTTP.
+        self.assertIn("tokens.py", deploy.FULL_EXTRA_FILES)
         with open(os.path.join(PROJECT, "install", "install.ps1"),
                   encoding="utf-8-sig") as fh:
             self.assertIn("tokens.py", fh.read())

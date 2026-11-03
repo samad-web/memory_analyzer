@@ -49,8 +49,9 @@ bottleneck; direction is.
 - [x] Scoped access tokens for the web dashboard
       acceptance: a token carries read/operate/answer scopes and is stored hashed
       check: python -m unittest tests.test_tokens
-- [ ] PWA shell and push for the web dashboard
+- [x] PWA shell and push for the web dashboard
       acceptance: installable on a phone, and an escalation arrives as a push
+      check: python -m unittest tests.test_push
 - [ ] Goal-driven runner with worktree isolation
       acceptance: a queued milestone runs headless in its own worktree, verifies
                   against its check command, and opens a PR

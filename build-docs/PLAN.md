@@ -44,7 +44,7 @@ the repository root, which is both the human-editable source and the thing
 | 6 | Memory tab in both dashboards | done |
 | 7 | [MCP server over the store](features/mcp-server.md) | done |
 | 8 | [Scoped access tokens for the web dashboard](features/scoped-tokens.md) | done |
-| 9 | PWA shell and push | planned |
+| 9 | [PWA shell and push](features/pwa-and-push.md) | done |
 | 10 | Goal-driven runner with worktree isolation | planned |
 | 11 | Autonomy budgets and escalation policy | planned |
 

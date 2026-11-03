@@ -46,7 +46,7 @@ import events
 
 DB_PATH = os.path.join(events.ROOT, "store.db")
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 # Statuses a milestone moves through. "done" is only ever set from evidence --
 # see the note on `check_cmd` in the schema.
@@ -233,6 +233,30 @@ create table if not exists tokens (
   last_used_at real    not null default 0,
   revoked_at   real    not null default 0
 );
+
+-- -------------------------------------------------------------- push_subs --
+-- Browsers that have asked to be told when an agent is blocked.
+--
+-- `id` is a digest of the endpoint rather than an autoincrement, so a client
+-- that re-subscribes -- which browsers do on their own schedule -- updates its
+-- row instead of leaving a dead one behind to be pruned later.
+--
+-- `p256dh` and `auth` are the browser's keys for payload encryption. Nothing
+-- reads them today, because push messages from here carry no body: encrypting
+-- one would need AES-GCM, which is not in the standard library and is not
+-- something to hand-write. They are stored anyway, because the day a payload
+-- is added, not having them would mean every client had to subscribe again.
+create table if not exists push_subs (
+  id         text primary key,
+  endpoint   text    not null,
+  p256dh     text    not null default '',
+  auth       text    not null default '',
+  label      text    not null default '',
+  created_at real    not null,
+  last_ok_at real    not null default 0,
+  last_error text    not null default '',
+  failures   integer not null default 0
+);
 """
 
 
@@ -302,6 +326,10 @@ def _migrate(conn: sqlite3.Connection, found: int) -> None:
             )
         except sqlite3.OperationalError:
             pass    # already present, or the table does not exist yet
+    if found < 5:
+        # `push_subs`, additive, for the same reason as `tokens` below: a
+        # browser subscription cannot be regenerated from anything we hold.
+        pass
     if found < 4:
         # `tokens` is purely additive -- the `create table if not exists` in
         # the schema below does the whole job. It is named here only so the

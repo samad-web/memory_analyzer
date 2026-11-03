@@ -57,7 +57,6 @@ REPORTER_FILES = (
     "goals.py",
     "context.py",
     "mcp_server.py",
-    "tokens.py",
 )
 
 # The tile and the dashboard on top of that.
@@ -67,6 +66,16 @@ FULL_EXTRA_FILES = (
     "charts.py",
     "viz.py",
     "webserver.py",
+    # The web dashboard's own concerns: who may call it, and the installable
+    # shell it serves. Nothing imports these but webserver.py, and `pwa`
+    # imports `viz`, which lives here -- putting them in the reporter bundle
+    # would ship a module whose import fails. tests/test_deploy.py walks the
+    # closure, which is how that was caught rather than discovered on someone
+    # else's laptop.
+    "tokens.py",
+    "vapid.py",
+    "push.py",
+    "pwa.py",
     "memory.py",
     "deploy.py",
     "run.vbs",

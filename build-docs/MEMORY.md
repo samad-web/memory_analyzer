@@ -49,6 +49,15 @@ updated whenever a decision is made.
 - **Scopes are a list, not a ladder.** `operate` does not imply `read`.
 - **`answer` is defined before it has an endpoint**, so the PWA's reply channel
   cannot be born unscoped.
+- **The push is sent by the server, never the hook.** A push is a network
+  call and hooks may not make one. This is the correct split, not a workaround.
+- **Push messages carry no payload.** Encrypting one needs AES-GCM; the
+  service worker asks the dashboard instead. Hand-written ciphers are out.
+- **Hand-written ECDSA is acceptable only because the nonce is deterministic
+  (RFC 6979) and the output is checked against published vectors.** If either
+  of those stops being true, this decision stops holding.
+- **The static shell is public; every `/api/` route is scoped.** Forced by
+  installability: an installed app opens `/` with no token in sight.
 - **The palette has no red.** Deliberate: status colour comes from
   `viz.STATUS[...]`, and a tile that cries wolf gets ignored.
 

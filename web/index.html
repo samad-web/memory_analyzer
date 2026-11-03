@@ -5,6 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Agent Dashboard</title>
 <!-- theme.css is generated from viz.py, so the palette has one home. -->
+<meta name="theme-color" content="#0e1119">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Agents">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="icon" type="image/png" href="/icon-192.png">
 <link rel="stylesheet" href="theme.css">
 <link rel="stylesheet" href="style.css">
 </head>
@@ -169,6 +176,16 @@
   <div class="card">
     <div class="card-head"><h2>Behaviour</h2></div>
     <div class="controls" id="tile-behaviour"></div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>Notifications</h2></div>
+    <div class="controls">
+      <p class="banner" id="push-state"></p>
+      <button class="btn" id="push-enable" type="button">
+        Notify this device
+      </button>
+      <button class="btn" id="push-test" type="button">Send a test</button>
+    </div>
   </div>
 </section>
 

@@ -13,6 +13,29 @@
 
 'use strict';
 
+/* An installed app launches at "/" with no query string, so the token that
+ * arrived in a shared link has to outlive that first visit. Kept in
+ * localStorage rather than a cookie: the server authenticates a header, and a
+ * cookie would ride along on requests that never asked for it. */
+function rememberToken() {
+  let token = '';
+  try {
+    token = new URLSearchParams(location.search).get('token') || '';
+    if (token) {
+      localStorage.setItem('dashboardToken', token);
+      /* Out of the address bar, so it does not end up in a screenshot or a
+       * shared link by accident. */
+      history.replaceState(null, '', location.pathname);
+    } else {
+      token = localStorage.getItem('dashboardToken') || '';
+    }
+  } catch (err) {
+    /* Private mode, or storage disabled. The page still works for this
+     * visit with whatever the query string gave us. */
+  }
+  return token;
+}
+
 const state = {
   period: 7,
   scope: 'me',
@@ -25,7 +48,7 @@ const state = {
   tile: null,
   memory: null,
   memorySelected: 0,
-  token: new URLSearchParams(location.search).get('token') || '',
+  token: rememberToken(),
 };
 
 const POLL_MS = 6000;
@@ -990,6 +1013,9 @@ function init() {
       + (meta.enrolled ? '' : ' · not enrolled');
   }).catch(() => {});
 
+  registerWorker();
+  wirePush();
+
   refresh();
   setInterval(() => { if (!document.hidden) refresh(); }, POLL_MS);
   /* A resize changes the SVG viewBox width the columns were laid out against. */
@@ -998,6 +1024,140 @@ function init() {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(refresh, 220);
   });
+}
+
+/* ------------------------------------------------------- service worker */
+
+function wirePush() {
+  const enable = $('#push-enable');
+  const test = $('#push-test');
+  if (!enable) return;
+
+  showPushState();
+
+  enable.addEventListener('click', async () => {
+    enable.disabled = true;
+    enable.textContent = 'Asking...';
+    try {
+      const result = await enableNotifications();
+      toast(result && result.ok ? 'This device will be notified.'
+        : (result && result.error) || 'Could not subscribe.');
+    } catch (err) {
+      toast('Could not subscribe: ' + err.message);
+    }
+    enable.disabled = false;
+    enable.textContent = 'Notify this device';
+    showPushState();
+  });
+
+  if (test) {
+    test.addEventListener('click', async () => {
+      try {
+        const report = await api('/api/push/test', { method: 'POST' });
+        toast(report.subscriptions
+          ? `Sent to ${report.sent} of ${report.subscriptions}.`
+          : 'No device is subscribed yet.');
+      } catch (err) {
+        /* 403 here means a read-only token, which is the designed answer
+         * rather than a fault -- say which it is. */
+        toast(String(err.message).indexOf('403') >= 0
+          ? 'This token cannot send; it needs the operate scope.'
+          : 'Could not send: ' + err.message);
+      }
+    });
+  }
+}
+
+/* Says why push is unavailable rather than leaving a button that does
+ * nothing. Over plain HTTP on a LAN -- a normal way to run this -- the
+ * browser forbids it outright, and that is worth stating once. */
+function showPushState() {
+  const node = $('#push-state');
+  if (!node) return;
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    node.textContent = 'This browser cannot receive push notifications.';
+  } else if (!window.isSecureContext) {
+    node.textContent = 'Push needs HTTPS, or localhost. Over plain HTTP on a '
+      + 'LAN the browser will not allow it.';
+  } else if (Notification.permission === 'denied') {
+    node.textContent = 'Notifications are blocked for this site in the '
+      + 'browser\'s own settings.';
+  } else if (Notification.permission === 'granted') {
+    node.textContent = 'Allowed. An agent blocked on a human will notify you.';
+  } else {
+    node.textContent = 'Not enabled yet on this device.';
+  }
+  api('/api/push/key').then((info) => {
+    if (info && typeof info.subscriptions === 'number') {
+      node.textContent += ` (${info.subscriptions} device(s) subscribed)`;
+    }
+  }).catch(() => {});
+}
+
+/* Registration is best-effort by design. Browsers only allow a service worker
+ * on HTTPS or localhost, so over plain HTTP on a LAN this fails -- which is a
+ * normal state for this tool, not an error worth shouting about. The page
+ * works either way; only install and push need the worker. */
+function registerWorker() {
+  if (!('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.register('/sw.js').then((registration) => {
+    sendTokenToWorker();
+    navigator.serviceWorker.addEventListener('controllerchange', sendTokenToWorker);
+    return registration;
+  }).catch(() => {
+    /* No worker: no offline shell and no push. Everything else is unaffected. */
+  });
+}
+
+/* The worker is killed between events, so it cannot hold the token in memory;
+ * it persists what we send. Without this a push arriving tomorrow could not
+ * ask what happened. */
+function sendTokenToWorker() {
+  const worker = navigator.serviceWorker.controller;
+  if (worker && state.token) {
+    worker.postMessage({ type: 'token', token: state.token });
+  }
+}
+
+/* Ask for notification permission and subscribe. Called from the UI rather
+ * than on load: a permission prompt nobody asked for is the fastest way to
+ * get permanently denied. */
+async function enableNotifications() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    return { ok: false, error: 'This browser cannot receive push notifications.' };
+  }
+  if (!window.isSecureContext) {
+    return { ok: false, error: 'Push needs HTTPS, or localhost.' };
+  }
+  const permission = await Notification.requestPermission();
+  if (permission !== 'granted') {
+    return { ok: false, error: 'Notifications were not allowed.' };
+  }
+  const { key } = await api('/api/push/key');
+  if (!key) return { ok: false, error: 'The server has no VAPID key.' };
+
+  const registration = await navigator.serviceWorker.ready;
+  const subscription = await registration.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: base64UrlToBytes(key),
+  });
+  sendTokenToWorker();
+  return api('/api/push/subscribe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      subscription: subscription.toJSON(),
+      label: navigator.userAgent.slice(0, 60),
+    }),
+  });
+}
+
+/* applicationServerKey wants raw bytes, and the server speaks base64url. */
+function base64UrlToBytes(value) {
+  const padded = value.replace(/-/g, '+').replace(/_/g, '/')
+    + '='.repeat((4 - (value.length % 4)) % 4);
+  const raw = atob(padded);
+  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
 }
 
 document.addEventListener('DOMContentLoaded', init);

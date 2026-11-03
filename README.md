@@ -519,7 +519,7 @@ nearest marker is found first -- that inner repository really is the project.
 python -m unittest discover -s tests -t .
 ```
 
-Two hundred and thirty-eight of them, and no test dependency: they are plain `unittest` cases,
+Three hundred and seven of them, and no test dependency: they are plain `unittest` cases,
 so they run under `pytest` too if you prefer its output. Each one gets a
 throwaway `LOCALAPPDATA` via `tests/_env.Sandbox`, so a test run never touches
 the real event log or database.
@@ -757,6 +757,107 @@ It is dependency-free: `http.server` and hand-written SVG, no framework and no
 CDN. A local tool should not stop working because the laptop is offline, which
 is often exactly when you want to look at it.
 
+## On a phone
+
+The dashboard is a page you have to decide to open. That is fine for the
+Scorecard, which you read when you feel like it, and useless for the one thing
+that is time-critical: an agent sitting blocked, waiting for a human. The
+measured baseline has 62 of those over nine days, each one dead time nobody was
+told about.
+
+So it installs, and it buzzes.
+
+```
+python push.py key            # the VAPID public key a browser subscribes with
+python push.py list           # subscribed devices
+python push.py send           # a test notification to all of them
+python push.py escalations    # what is blocked on a human right now
+```
+
+Open the dashboard on the phone, go to **Tile -> Notifications**, and press
+*Notify this device*.
+
+### Where the push is sent from, and why it matters
+
+"Hooks never touch the network and never block a turn" is a constraint on the
+board, and a push *is* a network call. So the hook that notices the block does
+what it always did -- write its mailbox file and exit -- and the **dashboard
+server**, already a long-running local process, watches that mailbox and
+sends. The thing that must be fast stays fast; the thing that can be slow lives
+where slowness is survivable. The watcher only starts when something is
+subscribed, so with no phone attached it is not even a timer.
+
+It announces each wait **once**. Polling is twenty seconds apart, and a loop
+that re-sent every pass would train anyone to turn notifications off within the
+hour. A wait is identified by its session and the moment it started, so the
+same block is never announced twice -- while the same session blocking *again*
+is. What was already blocked when the server started is adopted silently, so a
+restart does not buzz about old news.
+
+### The crypto, and why there is any
+
+Web Push needs two things the standard library does not have: ECDSA over P-256
+for the VAPID signature, and AES-128-GCM for an encrypted payload.
+
+The payload requirement is **avoidable** -- RFC 8030 permits a message with no
+body, so the service worker is told only that something happened and asks the
+dashboard what. No cipher is written here.
+
+The signature requirement is not: both FCM and Mozilla reject an
+unauthenticated subscription. So `vapid.py` is about 120 lines of integer
+arithmetic implementing P-256.
+
+**Writing your own crypto is normally the wrong call**, so what makes this one
+acceptable, specifically:
+
+* It is **signing only**, with a key this machine generated, for this machine.
+  A VAPID JWT carries no secret -- it only proves continuity of sender.
+* The way hand-written ECDSA actually fails is a repeated or biased nonce,
+  which leaks the private key outright. That failure is **removed, not
+  mitigated**: `k` comes from RFC 6979, derived by HMAC from the key and the
+  message. There is no randomness in a signature at all.
+* It is checked against someone else's arithmetic. RFC 6979 publishes exact
+  `r` and `s` for P-256/SHA-256, and the tests assert those numbers for two
+  messages. If the curve, the hashing or the nonce derivation were wrong they
+  could not match by accident.
+* Local timing is not in the threat model: anyone who can time this process
+  can read `vapid.json` off the disk beside it.
+
+### What it honestly does not do
+
+* **iOS needs the app added to the Home Screen first.** Safari will not deliver
+  push to a tab, and nothing on this side can change that.
+* **The notification body is generic unless the phone can reach the
+  dashboard**, because the push carries no payload. That is the price of not
+  hand-rolling AES-GCM, and it is the right price.
+* **A push service is a third party.** Chrome's is Google's. No prompt text
+  travels through it -- the body is empty -- but the fact that a notification
+  happened does.
+
+### The shell is public; the data is not
+
+Becoming installable moved one gate. `/` used to require a token, but an
+installed app launches at `/` with no query string, and the browser fetches
+the manifest and the service worker before any page has run -- so a gate there
+means the icon on a home screen opens a 401 and nothing else, forever.
+
+The shell -- `/`, the stylesheet, `app.js`, `sw.js`, the manifest, the icons --
+is now served without a token. It is markup, stylesheet and code: no prompt
+text, no project names, no numbers. Everything that carries those is under
+`/api/`, and every one of those still demands a scope on every request. A test
+asserts the public set exactly, so it cannot quietly widen.
+
+The token arrives once in a link, is kept in `localStorage`, and is stripped
+from the address bar so it does not end up in a screenshot. The page hands it
+to the service worker, which persists it -- a worker is killed between events,
+and a push arriving tomorrow still has to be able to ask what happened.
+
+The icons are generated, not committed: a PNG is a signature, three
+length-tagged chunks and a CRC each, with the pixels zlib-deflated, and all of
+that is standard library. Generating them means the icon follows the palette
+instead of going stale the first time it moves. The test decodes its own output
+back to pixels rather than trusting it.
+
 ## The team
 
 Each laptop reports to a Supabase project; the dashboard reads it back. Set it
@@ -930,6 +1031,9 @@ the toggle has no effect rather than blanking the window.
 | `goals.py` | `GOAL.md` in, milestones out; verifies them and writes status back |
 | `context.py` | The orientation block a session starts with |
 | `tokens.py` | Scoped, hashed access tokens for the web dashboard |
+| `vapid.py` | P-256 and RFC 6979, for the Web Push signature |
+| `push.py` | Subscriptions, sending, and the escalation watcher |
+| `pwa.py` | The web app manifest and its generated PNG icons |
 | `mcp_server.py` | MCP server over the store, so an agent can ask mid-turn |
 | `GOAL.md` | This project's own end goal and milestone board |
 | `tests/` | The suite the milestone checks run |
@@ -939,7 +1043,7 @@ the toggle has no effect rather than blanking the window.
 | `charts.py` | Hand-painted Qt chart widgets |
 | `viz.py` | The palette and formatters both dashboards share |
 | `webserver.py` | Local HTTP server and JSON API for the web dashboard |
-| `web/` | The web dashboard: `index.html`, `style.css`, `app.js` |
+| `web/` | The web dashboard: `index.html`, `style.css`, `app.js`, `sw.js` |
 | `identity.py` | Device identity and team enrollment (`team.json`) |
 | `cloud.py` | Supabase REST transport, stdlib only |
 | `sync.py` | Pushes this laptop's activity up, pulls the team board down |
