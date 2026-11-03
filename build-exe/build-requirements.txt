@@ -1,0 +1,12 @@
+# Build-time only. Runtime deps are in /requirements.txt.
+#
+# PyInstaller freezes the sources into a self-contained tree. Pinned minor
+# versions, loose on patch -- the frozen tree does not drift once produced.
+PyInstaller>=6.5,<7.0
+
+# The runtime deps that the frozen tree needs to see at build time, so
+# PyInstaller can walk their imports. Any mismatch with /requirements.txt
+# is a bug -- keep them in step.
+PySide6>=6.7
+psutil>=6.0
+pywin32>=306
