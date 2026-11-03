@@ -770,7 +770,7 @@ different request from asking them to let a hook count tokens:
 | **full** | the tile and their own dashboard as well | Python, PySide6, psutil, pywin32 |
 
 `install.ps1` copies the files, pip-installs, writes `team.json`, registers the
-five hooks and schedules the upload. It needs **no administrator rights** in
+six hooks and schedules the upload. It needs **no administrator rights** in
 reporter mode -- elevation on this project only ever buys fan speed and CPU
 temperature from the MSI embedded controller, which a reporter has no use for,
 and asking for admin to install telemetry is a good way to be told no.

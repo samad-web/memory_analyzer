@@ -74,6 +74,55 @@ class IngestTest(unittest.TestCase):
         self.store.ingest(self.conn)
         self.assertEqual(self.rows(), 51)
 
+    def test_every_return_path_reports_the_generation(self):
+        """A caller reading ``r["gen"]`` must not KeyError on a rare path."""
+        self.store.ingest(self.conn)
+        with open(self.log, "a", encoding="utf-8") as fh:
+            fh.write('{"t":3000.0,"ev":"do')      # torn: no newline
+        self.assertIn("gen", self.store.ingest(self.conn))
+        self.assertIn("gen", self.store.ingest(self.conn))     # nothing new
+
+    def test_a_torn_line_leaves_no_open_transaction(self):
+        """``observe.record`` passes its own connection and commits later.
+
+        An uncommitted write left here lands on that commit, so the Stop hook
+        ends up holding a write transaction it never asked for -- and, while
+        it does, a dashboard poll or an MCP read waits on the lock.
+        """
+        self.store.ingest(self.conn)
+        with open(self.log, "a", encoding="utf-8") as fh:
+            fh.write('{"t":3000.0,"ev":"do')
+        self.store.ingest(self.conn)
+        self.assertFalse(self.conn.in_transaction)
+
+    def test_a_rotation_landing_on_a_torn_line_bumps_the_generation_once(self):
+        """The bump is derived from the size, so the size has to be stored too.
+
+        Writing one without the other made every later call see the same
+        shrunken log and bump again -- once per turn, for as long as the
+        partial line sat there.
+        """
+        self.store.ingest(self.conn)
+        with open(self.log, "wb") as fh:
+            fh.write(b'{"t":1.0,"ev":"pro')       # rotated AND torn
+        first = self.store.ingest(self.conn)
+        self.assertEqual(first["gen"], 1)
+        for _ in range(3):
+            self.assertEqual(self.store.ingest(self.conn)["gen"], 1)
+
+    def test_the_rest_of_a_rotated_torn_line_is_still_ingested(self):
+        """Storing the watermark must not strand the new log unread."""
+        self.store.ingest(self.conn)
+        with open(self.log, "wb") as fh:
+            fh.write(b'{"t":1.0,"ev":"pro')
+        self.store.ingest(self.conn)
+        with open(self.log, "a", encoding="utf-8") as fh:
+            fh.write('mpt","sid":"x","proj":"p","msg":"after"}\n')
+        self.store.ingest(self.conn)
+        self.assertEqual(
+            self.conn.execute(
+                "select msg from events where gen=1").fetchone()["msg"], "after")
+
     def test_truncated_log_starts_a_new_generation(self):
         """Offsets restart at zero after a rotation, so the key must not be the
         offset alone -- otherwise the new line overwrites an unrelated old row

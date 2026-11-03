@@ -1,6 +1,6 @@
 r"""Installs (and removes) the Claude Code hooks that feed the widget.
 
-The five hooks are what make everything else work -- without them the tile has
+The six hooks are what make everything else work -- without them the tile has
 no sessions to show and the dashboard has no tasks to count. Wiring them by
 hand is fine for one laptop; it is the wrong thing to ask of a teammate running
 an installer, so this does it programmatically.
@@ -235,7 +235,12 @@ def main(argv: list[str]) -> int:
         print(f"{report['path']}  ({'exists' if report['exists'] else 'missing'})")
         for event, ok in report["hooks"].items():
             print(f"  {'ok ' if ok else '-- '} {event}")
-        print("all five wired" if report["complete"] else "incomplete")
+        # Counted, not spelled out. This line said "all five wired" for the
+        # whole of the release that shipped a sixth hook -- and it is the line
+        # someone reads to decide whether the install worked.
+        wired = sum(1 for ok in report["hooks"].values() if ok)
+        print("all %d wired" % wired if report["complete"]
+              else "incomplete: %d of %d" % (wired, len(report["hooks"])))
         return 0 if report["complete"] else 1
 
     print(_USAGE)

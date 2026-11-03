@@ -1,5 +1,21 @@
 # Changelog
 
+## fix(ingest)
+
+Three more defects:
+
+- **`ingest` left an uncommitted generation bump on the torn-line path.**
+  `observe.record` passes its own connection and commits afterwards, so the
+  bump landed while the size it was derived from did not -- every later turn
+  saw the same shrunken log and bumped again, and the Stop hook was left
+  holding a write transaction it never asked for.
+- **A rotated log whose first read landed on a partial line was never
+  ingested.** Proven by a test that comes back `None`.
+- **That path's return dict omitted `gen`**, which every other path carries.
+- **"all five wired"** was printed by a release with six hooks -- in
+  `hooks.py status`, the installer's success message, its header comment and
+  the README. It is the line someone reads to decide the install worked.
+
 ## feat(mcp-server)
 
 Stdio JSON-RPC MCP server over the store: `search_memory`, `project_status`,

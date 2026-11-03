@@ -339,7 +339,20 @@ def ingest(conn: sqlite3.Connection | None = None, path: str = "") -> dict:
 
         cut = blob.rfind(b"\n")
         if cut < 0:
-            return {"read": 0, "inserted": 0, "from": start, "to": start}
+            # Nothing but a partial line to show for it, but the watermark
+            # still has to be written down. Returning without committing left
+            # the generation bump above sitting in an *uncommitted* write --
+            # harmless when we own the connection and it is rolled back on
+            # close, but ``observe.record`` passes its own connection in and
+            # commits afterwards, so the bump landed while the size it was
+            # derived from did not. Every subsequent turn then saw the same
+            # shrunken log, bumped the generation again, and the Stop hook was
+            # left holding a write transaction it had not asked for.
+            _meta_set(conn, "ingest_offset", start)
+            _meta_set(conn, "ingest_size", size)
+            conn.commit()
+            return {"read": 0, "inserted": 0, "from": start, "to": start,
+                    "gen": gen}
         usable, end = blob[: cut + 1], start + cut + 1
 
         rows: list[tuple] = []

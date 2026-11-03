@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Installs the agent monitor on this laptop: hooks, sync, and optionally the tile.
 
@@ -9,7 +9,7 @@
       1. the agent files are copied to %LOCALAPPDATA%\SystemMonitorWidget\agent
       2. requirements.txt is pip-installed for the current user
       3. team.json is written, which is what switches reporting on
-      4. the five Claude Code hooks are registered, and a scheduled task is
+      4. the six Claude Code hooks are registered, and a scheduled task is
          created to upload the counts (reporter) or run the tile at logon (full)
 
     Deliberately does NOT need administrator rights in reporter mode. Elevation
@@ -270,7 +270,7 @@ Write-Step 'Registering the Claude Code hooks'
 if ($LASTEXITCODE -ne 0) {
     Write-Warn 'hook registration reported a problem -- check with: python hooks.py status'
 } else {
-    Write-Ok 'five hooks wired into Claude Code'
+    Write-Ok 'six hooks wired into Claude Code'
 }
 
 # -- scheduled tasks ---------------------------------------------------------

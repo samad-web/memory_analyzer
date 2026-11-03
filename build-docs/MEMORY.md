@@ -54,13 +54,20 @@ updated whenever a decision is made.
 
 ## Known issues
 
-- **`python hooks.py install` has not been run.** The `SessionStart` hook is
-  written, tested and shipped but not registered, so injection is not live. The
-  settings.json edit was refused as self-modification and was not worked around.
-- **`python mcp_server.py install` has not been run**, for the same reason. The
-  server passes its tests and answers a real handshake over a pipe, but nothing
-  has registered it with Claude Code, so no agent can call it yet.
 - Four of eleven milestones report `unverifiable` because they are unbuilt.
+- **`observations.tests` concatenates every test run in a turn** with `; `, so
+  a turn that failed and then passed reads `failed; ok` with no order and no
+  indication which was last. It is accurate and hard to read, which is the
+  wrong trade for a field an agent is shown at session start.
+- **`ran, outcome unparsed`** still appears, so some runner's summary line is
+  not matched by `observe._RUNNERS`.
+
+## Settled
+
+- Both installs are registered (2026-11-03): six hooks `ok`, and
+  `memory-analyzer` in `~/.claude.json`. Neither could be done from inside a
+  session -- the auto-mode classifier refuses them as self-modification, so
+  they are a human step by construction.
 
 ## Open questions
 
