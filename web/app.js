@@ -922,6 +922,7 @@ async function refresh() {
     if (state.tab === 'tasks') await loadTasks();
     if (state.tab === 'memory') await loadMemory();
     if (state.tab === 'team') await loadTeam();
+    if (state.tab === 'sirahos') await loadSirahOS();
     if (state.tab === 'tile') await loadTile();
   } catch (error) {
     $('#footer').textContent = `Could not load: ${error.message}`;
@@ -938,7 +939,59 @@ function showTab(name) {
   $$('.tab-panel').forEach((panel) => {
     panel.hidden = panel.id !== `tab-${name}`;
   });
+  updateHero(name);
   refresh();
+}
+
+/* The page hero re-skins to match the active tab, mirroring SirahOS, where
+ * each page's hero names where you are and what the thing does. */
+const HERO_COPY = {
+  overview:  { eyebrow: 'Agent control plane', title: 'Where did your prompts go?',
+               subtitle: 'Live view of every Claude Code turn on this laptop, with memory, team telemetry and the SirahOS WorkLog bridge.' },
+  tasks:     { eyebrow: 'Timeline',            title: 'Every turn, newest first.',
+               subtitle: 'The full table of finished turns. Filter by project, member, model or text in the prompt.' },
+  memory:    { eyebrow: 'Memory',              title: 'What past turns did.',
+               subtitle: 'Search the deterministic record of files touched, commands run, and decisions made — across every project.' },
+  team:      { eyebrow: 'Team',                title: 'What the fleet is doing right now.',
+               subtitle: 'Member tokens, device health and live sessions, as reported by every laptop that enrolled.' },
+  sirahos:   { eyebrow: 'SirahOS WorkLog bridge', title: 'Your hours, in the right project.',
+               subtitle: 'Sign in to SirahOS once; the bridge posts one WorkLog per IST day per project, with the turns you ran.' },
+  tile:      { eyebrow: 'Tile',                title: 'How the always-on-top widget behaves.',
+               subtitle: 'Appearance, behaviour and notifications for the Qt tile.' },
+};
+
+function updateHero(name) {
+  const copy = HERO_COPY[name] || HERO_COPY.overview;
+  const eyebrow = $('#hero-eyebrow');
+  const title = $('#hero-title');
+  const subtitle = $('#hero-subtitle');
+  if (eyebrow) eyebrow.textContent = copy.eyebrow;
+  if (title) title.textContent = copy.title;
+  if (subtitle) subtitle.textContent = copy.subtitle;
+}
+
+/* Theme toggle: light / dark / "match the OS". The choice is stored per
+ * browser (not synced to the server). Early-boot script in index.html already
+ * sets data-theme before the stylesheet loads to avoid a flash. */
+function currentTheme() {
+  const explicit = document.documentElement.getAttribute('data-theme');
+  if (explicit === 'light' || explicit === 'dark') return explicit;
+  return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+function setTheme(choice) {
+  if (choice === 'light' || choice === 'dark') {
+    document.documentElement.setAttribute('data-theme', choice);
+    try { localStorage.setItem('ma-theme', choice); } catch (e) { /* ignore */ }
+  }
+}
+
+function wireTheme() {
+  const button = $('#theme-toggle');
+  if (!button) return;
+  button.addEventListener('click', () => {
+    setTheme(currentTheme() === 'dark' ? 'light' : 'dark');
+  });
 }
 
 function init() {
@@ -1012,6 +1065,10 @@ function init() {
     $('#meta-note').textContent = `${meta.member} · ${meta.events} events logged`
       + (meta.enrolled ? '' : ' · not enrolled');
   }).catch(() => {});
+
+  wireTheme();
+  wireSirahOS();
+  updateHero(state.tab);
 
   registerWorker();
   wirePush();
@@ -1158,6 +1215,245 @@ function base64UrlToBytes(value) {
     + '='.repeat((4 - (value.length % 4)) % 4);
   const raw = atob(padded);
   return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+}
+
+/* ------------------------------------------------------------- SirahOS -- */
+/* The SirahOS tab has three states, picked by what the server says:
+ *   not configured  -> show "where is SirahOS" instructions
+ *   configured, not signed in -> show the sign-in form
+ *   signed in -> show the mapping panel + recent pushes
+ *
+ * All reads go through /sirahos/*; the server tells us which state we are in,
+ * and we never store the SirahOS password -- it is POSTed to /sirahos/signin
+ * and immediately discarded; what the client sees back is a redacted status. */
+
+const sirahosState = {
+  projects: [],
+  folders: [],
+  pushes: [],
+  signedInAs: '',
+};
+
+async function loadSirahOS() {
+  let status;
+  try {
+    status = await api('/sirahos/status');
+  } catch (err) {
+    $('#sirahos-auth').textContent = `Could not reach the SirahOS bridge: ${err.message}`;
+    return;
+  }
+  sirahosState.signedInAs = status.signed_in_as || '';
+  renderSirahOSAuth(status);
+  const mappingCard = $('#sirahos-mapping-card');
+  const pushesCard = $('#sirahos-pushes-card');
+  if (!status.signed_in) {
+    mappingCard.hidden = true;
+    pushesCard.hidden = true;
+    return;
+  }
+  mappingCard.hidden = false;
+  pushesCard.hidden = false;
+  try {
+    const data = await api('/sirahos/mapping');
+    sirahosState.projects = Array.isArray(data.projects) ? data.projects : [];
+    sirahosState.folders = Array.isArray(data.folders) ? data.folders : [];
+    renderSirahOSMapping(data);
+  } catch (err) {
+    $('#sirahos-mapping').textContent = `Could not load projects: ${err.message}`;
+  }
+  try {
+    const data = await api('/sirahos/pushes');
+    sirahosState.pushes = Array.isArray(data.pushes) ? data.pushes : [];
+    renderSirahOSPushes();
+  } catch (err) {
+    /* non-fatal: the pushes list is a nice-to-have, not a blocker */
+  }
+}
+
+function renderSirahOSAuth(status) {
+  const host = $('#sirahos-auth');
+  host.innerHTML = '';
+  const note = $('#sirahos-auth-note');
+  if (status.signed_in) {
+    note.textContent = `Signed in as ${status.signed_in_as || 'unknown'}`;
+    host.append(
+      el('p', { class: 'card-note', style: 'margin:0 0 12px' },
+        `Connected to ${status.api_url || '(unset)'}.`),
+      el('button', { class: 'ghost', onclick: () => signOut() }, 'Sign out'),
+    );
+    return;
+  }
+  if (!status.configured) {
+    host.append(
+      el('p', { class: 'card-note' },
+        'The SirahOS API URL is not configured. Set it in config.json under '),
+      el('code', { class: 'mono' }, '"sirahos": { "api_url": "https://…" }'),
+    );
+    return;
+  }
+  /* Sign-in form -- matches SirahOS's auth card look */
+  const emailInput = el('input', {
+    type: 'email', autocomplete: 'email', required: 'true',
+    placeholder: 'you@sirahdigital.in',
+  });
+  const pwInput = el('input', {
+    type: 'password', autocomplete: 'current-password', required: 'true',
+    placeholder: 'Your SirahOS password',
+  });
+  const errorBox = el('p', { class: 'error', hidden: 'true' });
+  const submit = el('button', { class: 'primary', type: 'submit' }, 'Sign in');
+
+  async function submitForm(ev) {
+    ev.preventDefault();
+    errorBox.hidden = true;
+    submit.disabled = true;
+    const original = submit.textContent;
+    submit.textContent = 'Signing in…';
+    try {
+      await api('/sirahos/signin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: emailInput.value.trim(),
+          password: pwInput.value,
+        }),
+      });
+      /* No success toast on auth -- the sign-in form itself disappears when
+       * the next load() sees a signed-in state. */
+      await loadSirahOS();
+    } catch (err) {
+      errorBox.textContent = err.message || 'Could not sign in.';
+      errorBox.hidden = false;
+    }
+    submit.disabled = false;
+    submit.textContent = original;
+  }
+
+  host.append(el('form', { class: 'auth-card', style: 'max-width:none; padding:0; border:0; box-shadow:none;',
+                           onsubmit: submitForm },
+    el('p', { class: 'lead' },
+      `Sign in with your SirahOS account; the bridge will post WorkLogs as you.
+       Your password is sent once and never stored — only the access token is kept,
+       encrypted via Windows DPAPI.`),
+    errorBox,
+    el('label', {},
+      el('span', { text: 'Email' }), emailInput),
+    el('label', {},
+      el('span', { text: 'Password' }), pwInput),
+    submit,
+  ));
+}
+
+async function signOut() {
+  try {
+    await api('/sirahos/signout', { method: 'POST' });
+    toast('Signed out of SirahOS.');
+  } catch (err) {
+    toast(`Could not sign out: ${err.message}`);
+  }
+  await loadSirahOS();
+}
+
+function renderSirahOSMapping(data) {
+  const host = $('#sirahos-mapping');
+  host.innerHTML = '';
+  const map = (data.folder_project_map && typeof data.folder_project_map === 'object')
+    ? data.folder_project_map : {};
+  const projects = sirahosState.projects.slice().sort(
+    (a, b) => a.name.localeCompare(b.name));
+  const folders = (sirahosState.folders || []).slice().sort();
+  if (!folders.length) {
+    host.append(el('p', { class: 'card-note' },
+      'No project folders seen yet. Run a Claude Code turn in a folder, then come back here.'));
+    return;
+  }
+  folders.forEach((folder) => {
+    const select = el('select', { 'data-folder': folder });
+    select.append(el('option', { value: '' }, 'General (no project)'));
+    projects.forEach((p) => {
+      const opt = el('option', { value: p.id }, `${p.name}${p.client ? ` · ${p.client}` : ''}`);
+      if (map[folder] === p.id) opt.selected = true;
+      select.append(opt);
+    });
+    const row = el('div', { class: 'mapping-row' },
+      el('span', { class: 'folder-name', text: folder }),
+      el('span', { class: 'arrow', text: '→' }),
+      select,
+    );
+    const mappedToMissingProject = map[folder] && !projects.find((p) => p.id === map[folder]);
+    if (mappedToMissingProject) {
+      row.append(el('p', { class: 'nag',
+        text: 'This folder was mapped to a project you can no longer see.' }));
+    }
+    host.append(row);
+  });
+}
+
+function renderSirahOSPushes() {
+  const tbody = $('#sirahos-pushes-table tbody');
+  tbody.innerHTML = '';
+  const note = $('#sirahos-pushes-note');
+  if (!sirahosState.pushes.length) {
+    note.textContent = 'Nothing pushed yet.';
+    return;
+  }
+  note.textContent = `${sirahosState.pushes.length} push${sirahosState.pushes.length === 1 ? '' : 'es'} on record`;
+  sirahosState.pushes.forEach((push) => {
+    const status = push.skip ? el('span', { class: 'chip chip-muted', text: 'skipped' })
+      : push.last_error ? el('span', { class: 'chip chip-danger', text: 'error' })
+      : push.worklog_id ? el('span', { class: 'chip chip-good', text: 'posted' })
+      : el('span', { class: 'chip chip-warn', text: 'pending' });
+    tbody.append(el('tr', {},
+      el('td', { class: 'mono', text: push.ist_date }),
+      el('td', { class: 'mono', text: push.project_dir }),
+      el('td', { class: 'num mono', text: push.hours.toFixed(2) }),
+      el('td', { class: 'num mono', text: String(push.task_count) }),
+      el('td', { class: 'mono', text: push.worklog_id || '—' }),
+      el('td', {}, status, push.last_error
+        ? el('span', { class: 'card-note', style: 'margin-left:8px',
+                       text: push.last_error }) : null),
+    ));
+  });
+}
+
+function wireSirahOS() {
+  const saveBtn = $('#sirahos-save-map');
+  if (saveBtn) {
+    saveBtn.addEventListener('click', async () => {
+      const map = {};
+      $$('.mapping-row select').forEach((sel) => {
+        if (sel.value) map[sel.dataset.folder] = sel.value;
+      });
+      try {
+        await api('/sirahos/mapping', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ folder_project_map: map }),
+        });
+        toast('Mapping saved.');
+      } catch (err) {
+        toast(`Could not save: ${err.message}`);
+      }
+    });
+  }
+  const pushBtn = $('#sirahos-push-now');
+  if (pushBtn) {
+    pushBtn.addEventListener('click', async () => {
+      pushBtn.disabled = true;
+      const prev = pushBtn.textContent;
+      pushBtn.textContent = 'Pushing…';
+      try {
+        const report = await api('/sirahos/push-now', { method: 'POST' });
+        toast(report.ok ? `Pushed ${report.pushed} day(s).`
+                        : `Push problem: ${(report.errors || []).join('; ') || 'unknown'}`);
+      } catch (err) {
+        toast(`Push failed: ${err.message}`);
+      }
+      pushBtn.disabled = false;
+      pushBtn.textContent = prev;
+      loadSirahOS();
+    });
+  }
 }
 
 document.addEventListener('DOMContentLoaded', init);

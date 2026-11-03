@@ -5,13 +5,31 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Agent Dashboard</title>
 <!-- theme.css is generated from viz.py, so the palette has one home. -->
-<meta name="theme-color" content="#0e1119">
+<!-- Early theme pick: block the flash by setting data-theme before stylesheets
+     load. The saved choice beats prefers-color-scheme if present. -->
+<script>
+  (function() {
+    try {
+      var saved = localStorage.getItem("ma-theme");
+      if (saved === "light" || saved === "dark") {
+        document.documentElement.setAttribute("data-theme", saved);
+      }
+    } catch (e) { /* storage blocked -- fall back to media query */ }
+  })();
+</script>
+<meta name="theme-color" content="#f5f6f9" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d1017" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Agents">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <link rel="icon" type="image/png" href="/icon-192.png">
+<!-- Fonts: Inter (body), Plus Jakarta Sans (display), IBM Plex Mono (numbers).
+     preconnect first so the browser sets up the TLS before the stylesheet. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="theme.css">
 <link rel="stylesheet" href="style.css">
 </head>
@@ -36,6 +54,17 @@
       <button data-scope="team">Team</button>
     </div>
     <button id="sync-btn" class="ghost">Sync now</button>
+    <!-- Theme toggle: shows the icon of the theme you would switch to. -->
+    <button id="theme-toggle" class="theme-toggle" type="button"
+            aria-label="Switch between light and dark" title="Switch theme">
+      <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+           aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+           aria-hidden="true"><circle cx="12" cy="12" r="4"/>
+           <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+    </button>
   </div>
 </header>
 
@@ -44,10 +73,22 @@
   <button role="tab" data-tab="tasks" aria-selected="false">Tasks</button>
   <button role="tab" data-tab="memory" aria-selected="false">Memory</button>
   <button role="tab" data-tab="team" aria-selected="false">Team</button>
+  <button role="tab" data-tab="sirahos" aria-selected="false">SirahOS</button>
   <button role="tab" data-tab="tile" aria-selected="false">Tile</button>
 </nav>
 
 <main>
+
+<!-- The page hero: eyebrow + title + subtitle + chips. Matches SirahOS's
+     PageHero so the two apps read as one product family. The text is set by
+     app.js so it can change with the active tab. -->
+<section class="page-hero" aria-labelledby="hero-title">
+  <div class="eyebrow" id="hero-eyebrow">Agent control plane</div>
+  <h2 id="hero-title">Where did your prompts go?</h2>
+  <p class="subtitle" id="hero-subtitle">Live view of every Claude Code turn on
+     this laptop, with memory, team telemetry and the SirahOS WorkLog bridge.</p>
+  <div class="hero-chips" id="hero-chips"></div>
+</section>
 
 <!-- ------------------------------------------------------------ overview -->
 <section id="tab-overview" class="tab-panel" role="tabpanel">
@@ -164,6 +205,56 @@
     <div class="table-view" id="member-table" hidden></div>
   </div>
   <div id="fleet"></div>
+</section>
+
+<!-- ------------------------------------------------------------- sirahos -->
+<!-- The SirahOS WorkLog bridge: sign in, map folders to SirahOS projects, and
+     see what the bridge has pushed. The panel's content is filled by app.js
+     from /sirahos/* endpoints on the local webserver. -->
+<section id="tab-sirahos" class="tab-panel" role="tabpanel" hidden>
+  <div class="card" id="sirahos-auth-card">
+    <div class="card-head">
+      <h2>SirahOS sign-in</h2>
+      <span class="card-note" id="sirahos-auth-note"></span>
+    </div>
+    <div id="sirahos-auth"></div>
+  </div>
+  <div class="card" id="sirahos-mapping-card" hidden>
+    <div class="card-head">
+      <h2>Folder → SirahOS project</h2>
+      <p class="card-note">
+        A Claude turn in each folder on the left is logged as time on the
+        SirahOS project you pick on the right. Unmapped folders are logged
+        as "General".
+      </p>
+    </div>
+    <div id="sirahos-mapping"></div>
+    <div style="display:flex; gap:10px; margin-top:16px;">
+      <button class="primary" id="sirahos-save-map">Save mapping</button>
+      <button class="ghost" id="sirahos-push-now">Push now</button>
+    </div>
+  </div>
+  <div class="card" id="sirahos-pushes-card" hidden>
+    <div class="card-head">
+      <h2>Recent pushes</h2>
+      <span class="card-note" id="sirahos-pushes-note"></span>
+    </div>
+    <div class="table-view">
+      <table id="sirahos-pushes-table">
+        <thead>
+          <tr>
+            <th>Day</th>
+            <th>Folder</th>
+            <th class="num">Hours</th>
+            <th class="num">Turns</th>
+            <th>WorkLog</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
 </section>
 
 <!-- ---------------------------------------------------------------- tile -->
