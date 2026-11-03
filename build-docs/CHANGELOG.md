@@ -1,5 +1,18 @@
 # Changelog
 
+## fix(auth)
+
+**The loopback bypass survived a tunnel.** `local_only` was decided by the
+bind address, but ngrok, cloudflared and `ssh -R` all run on this machine and
+connect to `127.0.0.1` -- so every tunnelled request looked local and got
+every scope, unauthenticated, at exactly the moment the dashboard was most
+exposed. Found while actually tunnelling it to a phone.
+
+The bypass now needs three conditions: bound to loopback, arrived on loopback,
+and carrying no forwarding header. Verified against a live ngrok tunnel: the
+shell serves, every `/api/` route 401s without a token, and a read token gets
+403 on POST.
+
 ## feat(pwa-and-push)
 
 Installable dashboard and Web Push for escalations. `pwa.py` (manifest and

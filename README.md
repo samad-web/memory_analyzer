@@ -834,6 +834,32 @@ acceptable, specifically:
   travels through it -- the body is empty -- but the fact that a notification
   happened does.
 
+### Putting it through a tunnel
+
+The loopback bypass is not decided by the bind address alone, and that matters
+the moment you reach for ngrok or cloudflared. A tunnel runs *on this machine*
+and connects to `127.0.0.1`, so a tunnelled request arrives looking exactly
+like one typed on this keyboard. Trusting the bind address would hand every
+scope to the entire internet at precisely the moment the dashboard is most
+exposed.
+
+So the bypass needs three things, not one: bound to loopback, **arrived** on
+loopback, and **not forwarded**. Every tunnel announces itself in a header --
+`X-Forwarded-For`, `Via`, `Ngrok-Trace-Id`, `Cf-Connecting-Ip` and the rest --
+and any of them withdraws the trust. A forged header cannot help an attacker:
+it only ever *removes* trust, so the worst it can do is demand a token they
+then have to actually have.
+
+```
+python webserver.py                 # serves on 127.0.0.1:8765
+ngrok http 8765                     # or: cloudflared tunnel --url http://localhost:8765
+python tokens.py mint read --label phone --days 30
+```
+
+Then open `https://<tunnel>/?token=<token>` on the phone. HTTPS is not
+optional here: a browser will not install a PWA or deliver push over plain
+HTTP, which is also why a LAN address alone is not enough.
+
 ### The shell is public; the data is not
 
 Becoming installable moved one gate. `/` used to require a token, but an

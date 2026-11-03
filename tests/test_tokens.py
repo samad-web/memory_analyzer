@@ -382,5 +382,84 @@ class BundleTest(unittest.TestCase):
             self.assertIn("tokens.py", fh.read())
 
 
+class TunnelTest(unittest.TestCase):
+    """The loopback bypass must not survive a tunnel.
+
+    ngrok, cloudflared and ``ssh -R`` all run on this machine and connect to
+    the loopback interface, so a tunnelled request arrives looking exactly
+    like one typed on this keyboard. Deciding trust from the bind address
+    alone would hand every scope to the whole internet the moment a tunnel is
+    opened -- which is exactly when the dashboard is most exposed.
+    """
+
+    def setUp(self) -> None:
+        self.sb = Sandbox()
+        self.addCleanup(self.sb.close)
+        import importlib
+
+        import webserver
+
+        self.webserver = importlib.reload(webserver)
+        self.conn = self.sb.store.connect()
+        self.addCleanup(self.conn.close)
+        # Genuinely loopback-bound, which is how a tunnel is run.
+        self.server = self.webserver.DashboardServer(
+            {"web_port": 0, "web_bind": "127.0.0.1", "web_token": ""})
+        self.assertTrue(self.server.start())
+        self.addCleanup(self.server.stop)
+        self.base = "http://127.0.0.1:%d" % self.server._server.server_port
+
+    def get(self, path: str, headers: dict | None = None) -> int:
+        req = urllib.request.Request(self.base + path)
+        for name, value in (headers or {}).items():
+            req.add_header(name, value)
+        try:
+            with urllib.request.urlopen(req, timeout=20) as reply:
+                return reply.status
+        except urllib.error.HTTPError as exc:
+            return exc.code
+
+    def test_a_plain_local_request_still_needs_no_token(self):
+        """The desktop case, which must not regress."""
+        self.assertEqual(self.get("/api/summary"), 200)
+
+    def test_a_forwarded_request_is_refused_even_though_it_is_loopback(self):
+        for header in ("X-Forwarded-For", "X-Real-IP", "Forwarded",
+                       "Ngrok-Trace-Id", "Cf-Connecting-Ip", "Via",
+                       "X-Forwarded-Proto", "X-Forwarded-Host"):
+            with self.subTest(header=header):
+                self.assertEqual(
+                    self.get("/api/summary", {header: "203.0.113.9"}), 401,
+                    "%s did not withdraw the loopback bypass" % header)
+
+    def test_a_forwarded_request_works_with_a_real_token(self):
+        """Withdrawing the bypass must not make the tunnel unusable."""
+        token = self.sb.tokens.mint(["read"], conn=self.conn)["token"]
+        self.assertEqual(
+            self.get("/api/summary?token=" + urllib.parse.quote(token),
+                     {"X-Forwarded-For": "203.0.113.9"}), 200)
+
+    def test_a_forwarded_request_still_gets_the_public_shell(self):
+        """Otherwise the tunnelled app could never load at all."""
+        for path in ("/", "/manifest.webmanifest", "/sw.js", "/icon-192.png"):
+            with self.subTest(path=path):
+                self.assertEqual(
+                    self.get(path, {"X-Forwarded-For": "203.0.113.9"}), 200)
+
+    def test_scopes_are_still_enforced_over_a_tunnel(self):
+        token = self.sb.tokens.mint(["read"], conn=self.conn)["token"]
+        req = urllib.request.Request(
+            self.base + "/api/tile", data=b"{}", method="POST")
+        req.add_header("X-Dashboard-Token", token)
+        req.add_header("X-Forwarded-For", "203.0.113.9")
+        req.add_header("Content-Type", "application/json")
+        try:
+            with urllib.request.urlopen(req, timeout=20) as reply:
+                status = reply.status
+        except urllib.error.HTTPError as exc:
+            status = exc.code
+        self.assertEqual(status, 403)
+
+
 if __name__ == "__main__":
     unittest.main()

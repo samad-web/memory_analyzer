@@ -56,6 +56,10 @@ updated whenever a decision is made.
 - **Hand-written ECDSA is acceptable only because the nonce is deterministic
   (RFC 6979) and the output is checked against published vectors.** If either
   of those stops being true, this decision stops holding.
+- **The loopback bypass needs three conditions, not one.** Bound to
+  loopback, arrived on loopback, and not forwarded. A tunnel connects to
+  127.0.0.1 from this machine, so the bind address alone would publish
+  everything the moment a tunnel opened.
 - **The static shell is public; every `/api/` route is scoped.** Forced by
   installability: an installed app opens `/` with no token in sight.
 - **The palette has no red.** Deliberate: status colour comes from

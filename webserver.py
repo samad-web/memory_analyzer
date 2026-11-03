@@ -64,6 +64,16 @@ _PUBLIC_PATHS = frozenset({
 })
 
 
+# Headers that mean "this did not come from where it looks like it came from".
+# Any one of them withdraws the loopback trust, so a tunnel cannot inherit it.
+_FORWARD_HEADERS = (
+    "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto",
+    "X-Real-IP", "Forwarded", "Via",
+    "Ngrok-Trace-Id", "Cf-Connecting-Ip", "Cf-Ray",
+    "X-Original-Forwarded-For", "X-Client-Ip",
+)
+
+
 def _is_icon(path: str) -> bool:
     return path.startswith("/icon-") and path.endswith(".png")
 
@@ -439,6 +449,31 @@ class _DashboardHandler(BaseHTTPRequestHandler):
         query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
         return str(header or (query.get("token") or [""])[0])
 
+    def _forwarded(self) -> bool:
+        """Did this request reach us through a proxy or a tunnel?
+
+        This is the difference between "nobody but me can reach this" and
+        "anybody on the internet can". A tunnel -- ngrok, cloudflared,
+        ``ssh -R`` -- runs on this machine and connects to the loopback
+        interface, so a tunnelled request arrives looking exactly like one
+        typed on this keyboard. Trusting the bind address alone would hand
+        every scope to the whole internet the moment a tunnel is opened,
+        which is precisely when the dashboard is most exposed.
+
+        Every one of those tools announces itself in a header. Absence of a
+        header is not proof of anything, but it does not need to be: this only
+        ever *removes* trust, so the worst a forged header can do is demand a
+        token that the caller then has to actually have.
+        """
+        return any(self.headers.get(name) for name in _FORWARD_HEADERS)
+
+    def _from_loopback(self) -> bool:
+        try:
+            host = (self.client_address or ("",))[0]
+        except Exception:  # noqa: BLE001
+            return False
+        return str(host) in ("127.0.0.1", "::1", "::ffff:127.0.0.1")
+
     def _scopes(self) -> list[str]:
         """What the caller is allowed to do. Empty means "nothing".
 
@@ -447,7 +482,9 @@ class _DashboardHandler(BaseHTTPRequestHandler):
         it keeps working and ``tokens.py list`` reports it as legacy.
         """
         owner = self.owner
-        if owner.local_only:
+        # Three conditions, not one: bound to loopback, *arrived* on loopback,
+        # and not forwarded. See `_forwarded`.
+        if owner.local_only and self._from_loopback() and not self._forwarded():
             return list(tokens.SCOPES)
         supplied = self._supplied_token()
         if not supplied:
