@@ -6,10 +6,17 @@
 <title>Agent Dashboard</title>
 <!-- theme.css is generated from viz.py, so the palette has one home. -->
 <!-- Early theme pick: block the flash by setting data-theme before stylesheets
-     load. The saved choice beats prefers-color-scheme if present. -->
+     load. A ?theme=light|dark query wins (useful for shared links and
+     screenshot tooling); otherwise the saved choice beats prefers-color-scheme. -->
 <script>
   (function() {
     try {
+      var params = new URLSearchParams(location.search);
+      var urlTheme = params.get("theme");
+      if (urlTheme === "light" || urlTheme === "dark") {
+        document.documentElement.setAttribute("data-theme", urlTheme);
+        return;
+      }
       var saved = localStorage.getItem("ma-theme");
       if (saved === "light" || saved === "dark") {
         document.documentElement.setAttribute("data-theme", saved);

@@ -45,8 +45,10 @@ import tokens
 import vapid
 import viz
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-WEB_DIR = os.path.join(HERE, "web")
+import paths  # noqa: E402
+
+HERE = paths.ROOT
+WEB_DIR = paths.WEB_DIR
 
 DEFAULT_PORT = 8765
 DEFAULT_BIND = "127.0.0.1"
@@ -100,7 +102,7 @@ _MIME = {
 # escaping into an HTTP response would otherwise reveal a path or a stack
 # trace to anyone who holds the dashboard URL.
 
-CONFIG_PATH = os.path.join(HERE, "config.json")
+CONFIG_PATH = paths.CONFIG_PATH
 
 
 def _read_raw_config() -> dict:
@@ -108,9 +110,14 @@ def _read_raw_config() -> dict:
 
     ``widget.load_config`` filters to its own DEFAULTS and would strip any
     field a future version added; this reader deliberately does not.
+
+    Reads with ``utf-8-sig`` so a BOM written by PowerShell's ``Set-Content``
+    does not silently fail the parse -- a frozen Windows world will see this
+    more than once, and a "config not readable" bug surfaces as "SirahOS
+    URL not configured" everywhere, which is tedious to track down.
     """
     try:
-        with open(CONFIG_PATH, encoding="utf-8") as fh:
+        with open(CONFIG_PATH, encoding="utf-8-sig") as fh:
             data = json.load(fh)
         return data if isinstance(data, dict) else {}
     except (OSError, ValueError):

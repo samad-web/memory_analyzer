@@ -20,12 +20,18 @@
 function rememberToken() {
   let token = '';
   try {
-    token = new URLSearchParams(location.search).get('token') || '';
+    const params = new URLSearchParams(location.search);
+    token = params.get('token') || '';
     if (token) {
       localStorage.setItem('dashboardToken', token);
       /* Out of the address bar, so it does not end up in a screenshot or a
-       * shared link by accident. */
-      history.replaceState(null, '', location.pathname);
+       * shared link by accident. A ?tab= deep-link is preserved in the
+       * cleaned URL, along with any #fragment, so the tab handler in
+       * init() can still read it. */
+      params.delete('token');
+      const qs = params.toString();
+      const clean = location.pathname + (qs ? '?' + qs : '') + (location.hash || '');
+      history.replaceState(null, '', clean);
     } else {
       token = localStorage.getItem('dashboardToken') || '';
     }
@@ -1068,7 +1074,19 @@ function init() {
 
   wireTheme();
   wireSirahOS();
-  updateHero(state.tab);
+  /* Deep-link into a tab via either ?tab=... or #tab. Lets a shared link
+   * land on the right view, and lets screenshot tooling pick which view
+   * to capture without a click. ?tab= is honoured first because the URL
+   * hash is sometimes stripped by shells that pipe URLs around. */
+  const allowed = ['overview', 'tasks', 'memory', 'team', 'sirahos', 'tile'];
+  const q = new URLSearchParams(location.search).get('tab') || '';
+  const hash = (location.hash || '').replace('#', '').trim();
+  const pick = allowed.includes(q) ? q : (allowed.includes(hash) ? hash : '');
+  if (pick && pick !== state.tab) {
+    showTab(pick);
+  } else {
+    updateHero(state.tab);
+  }
 
   registerWorker();
   wirePush();

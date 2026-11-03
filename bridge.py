@@ -101,12 +101,15 @@ def _load_config() -> dict:
 
     Missing or malformed -> empty dict, which the caller treats as "not
     configured" and skips the push.
+
+    Opens with ``utf-8-sig`` because a config edited by PowerShell's
+    ``Set-Content`` starts with a BOM, and a utf-8-only parser silently
+    reads it as not configured -- which is a tedious bug to track down.
     """
-    cfg_path = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "config.json"
-    )
+    import paths
+    cfg_path = paths.CONFIG_PATH
     try:
-        with open(cfg_path, encoding="utf-8") as fh:
+        with open(cfg_path, encoding="utf-8-sig") as fh:
             data = json.load(fh)
     except (OSError, ValueError):
         return {}

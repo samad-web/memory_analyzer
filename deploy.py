@@ -45,6 +45,9 @@ REPORTER_FILES = (
     "hooks.py",
     "sensors.py",
     "msi_ec.py",
+    # Install-vs-source root. Every file that reads config.json / schema.sql
+    # / web/ asks paths.py so a frozen build does not look inside _internal.
+    "paths.py",
     # The memory and goal layers. These are not optional extras for a reporter:
     # hooks.py registers a SessionStart hook that runs `notify.py context`, and
     # notify.py imports `observe` when a turn ends. Leave them out and the hook

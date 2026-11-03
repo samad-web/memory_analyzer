@@ -52,7 +52,11 @@ import sensors
 import stats
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-CONFIG_PATH = os.path.join(HERE, "config.json")
+import paths  # noqa: E402
+
+# One source of truth for where config lives, so a frozen build does not
+# look inside PyInstaller's _internal tree.
+CONFIG_PATH = paths.CONFIG_PATH
 TASK_NAME = "SystemMonitorWidget"
 
 # A launch while the widget is already running drops this marker; the running

@@ -261,6 +261,9 @@ button.primary:disabled { opacity: 0.5; cursor: default; }
 main { padding: 20px 24px 32px; max-width: 1300px; }
 
 .tab-panel { display: flex; flex-direction: column; gap: 18px; }
+/* The `hidden` attribute's default `display: none` is otherwise beaten by
+   the `display: flex` above, so inactive tabs would still render. */
+.tab-panel[hidden] { display: none; }
 
 /* ------------------------------------------------------- page hero ---- */
 /* The SirahOS PageHero idiom: eyebrow + title + subtitle + chips above the
