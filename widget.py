@@ -378,6 +378,7 @@ class MonitorWidget(QWidget):
         # Dynamic Island state. Expanded when hovered or when a session wants
         # attention; the media watcher reads the system's current track.
         self._island_expanded = False   # target: is the dropdown open
+        self._island_minimized = False  # user pinned it collapsed
         self._island_anim_t = 0.0        # 0..1 drop progress (eased)
         self._island_anim = None         # the running QVariantAnimation
         self._island_hover = False
@@ -667,6 +668,8 @@ class MonitorWidget(QWidget):
 
     def _announce(self, alert: agent_alert.Alert) -> None:
         """Raise a tray balloon too, in case the widget is off to one side."""
+        # A genuinely new alert un-minimises the island so it can pop open.
+        self._island_minimized = False
         title = (
             f"{alert.source}: needs you"
             if alert.needs_input
@@ -919,7 +922,11 @@ class MonitorWidget(QWidget):
         return shown, max(0, len(self._alerts) - len(shown))
 
     def _island_wants_expand(self) -> bool:
-        """Open the dropdown when hovered, or whenever a session wants you."""
+        """Open the dropdown when hovered, or whenever a session wants you --
+        unless the user has minimised it, which pins it shut until they click
+        the pill (a brand-new alert un-minimises it, see _announce)."""
+        if self._island_minimized:
+            return False
         attention = any(a.attention for a in self._alerts)
         has_content = bool(self._alerts) or self._now is not None
         return attention or (self._island_hover and has_content)
@@ -1068,12 +1075,25 @@ class MonitorWidget(QWidget):
                 self._paint_island_media(p, w, self._island_media_top())
 
         if t > 0.9:
+            self._paint_island_minimize(p, w)
             self._paint_island_close(p, w)
             self._paint_island_grip(p, w, h)
         p.restore()
 
     def _island_close_center(self, w: float) -> tuple[float, float]:
         return w - 13, 13
+
+    def _island_minimize_center(self, w: float) -> tuple[float, float]:
+        return w - 36, 13
+
+    def _paint_island_minimize(self, p: QPainter, w: float) -> None:
+        """A minus to the left of the x: tuck the dropdown back to the pill."""
+        cx, cy = self._island_minimize_center(w)
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(255, 255, 255, 24))
+        p.drawEllipse(QRectF(cx - 9, cy - 9, 18, 18))
+        p.setPen(QPen(QColor(230, 236, 245, 230), 1.6))
+        p.drawLine(int(cx - 4), int(cy), int(cx + 4), int(cy))
 
     def _paint_island_close(self, p: QPainter, w: float) -> None:
         """A small red x in the top-right that quits the tile."""
@@ -1453,6 +1473,11 @@ class MonitorWidget(QWidget):
             if self._hit_circle(x, y, ccx, ccy, 11):
                 self.close()   # quit the box
                 return True
+            mcx, mcy = self._island_minimize_center(cardw)
+            if self._hit_circle(x, y, mcx, mcy, 11):
+                self._island_minimized = True   # tuck it back to the pill
+                self._set_island_open(self._island_wants_expand())
+                return True
         action = self._island_media_hit(x, y)
         if action is not None:
             action()
@@ -1465,6 +1490,12 @@ class MonitorWidget(QWidget):
         n = len(self._alerts)
         # Rings live in the pill strip in both states; rows only when expanded.
         if y <= island.PILL_H:
+            # While minimised, a click on the pill re-opens it instead of
+            # jumping to a session -- that is how you get the dropdown back.
+            if self._island_minimized:
+                self._island_minimized = False
+                self._set_island_open(True)
+                return True
             i = island.ring_at(n, x, y)
             if 0 <= i < n:
                 self.focus_agent(self._alerts[i])

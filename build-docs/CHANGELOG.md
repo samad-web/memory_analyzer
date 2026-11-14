@@ -186,3 +186,9 @@ build every path renders solid or clear, not blurred (see dynamic-island.md),
 so reverted that and kept a premium painted smoked-glass: cool gradient body,
 specular top sheen, vibrancy glow, bevel hairline, bright rim. No new runtime
 cost, no window mask, no acrylic dead code.
+
+## feat(dynamic-island): minimise the dropdown
+
+A minus button (left of the quit x) tucks the open panel back to the pill and
+pins it collapsed; hover stops re-opening it. Click the pill to restore it, and
+a new alert un-minimises it so a request still pops.
