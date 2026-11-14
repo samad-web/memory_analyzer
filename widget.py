@@ -983,6 +983,12 @@ class MonitorWidget(QWidget):
         cardw, _ = self._island_card_size()
         return (winw - cardw) / 2.0
 
+    def _island_pill_offset(self, cardw: float) -> float:
+        """x of the ring strip inside the card. The rings are laid out for the
+        pill's width; keeping them centred stops them sliding left as the card
+        widens into the panel during the drop."""
+        return (cardw - island.pill_width(len(self._alerts))) / 2.0
+
     def _island_card_rect_global(self, win) -> QRect:
         """The card's on-screen rectangle for ``win`` (the tile or a clone),
         used for hover and region click-through."""
@@ -1062,7 +1068,10 @@ class MonitorWidget(QWidget):
         p.setClipRect(QRectF(0, 0, w, h))
         n = len(self._alerts)
         if n:
+            p.save()
+            p.translate(self._island_pill_offset(w), 0)
             self._paint_island_rings(p, n)
+            p.restore()
         elif self._now is not None and t <= 0.5:
             self._paint_island_media_mini(p, w)
         else:
@@ -1496,7 +1505,7 @@ class MonitorWidget(QWidget):
                 self._island_minimized = False
                 self._set_island_open(True)
                 return True
-            i = island.ring_at(n, x, y)
+            i = island.ring_at(n, x - self._island_pill_offset(cardw), y)
             if 0 <= i < n:
                 self.focus_agent(self._alerts[i])
                 return True

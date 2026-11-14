@@ -86,6 +86,13 @@ if (-not (Test-Path (Join-Path $distApp 'SirahlyzerBridge.exe'))) {
 $sizeMB = (Get-ChildItem $distApp -Recurse | Measure-Object Length -Sum).Sum / 1MB
 Write-Ok ('frozen tree: {0:N1} MB at {1}' -f $sizeMB, $distApp)
 
+# Teammate-facing files (setup.cmd, README, VERSION) live in the repo; the
+# clean build above wipes dist, so copy them in and zip the result.
+Copy-Item (Join-Path $BuildDir 'team-files\*') $distApp -Force
+$zip = Join-Path $Dist 'sirahlyzer-team.zip'
+Compress-Archive -Path (Join-Path $distApp '*') -DestinationPath $zip -Force
+Write-Ok ('team zip: {0:N1} MB at {1}' -f ((Get-Item $zip).Length / 1MB), $zip)
+
 if ($PyInstallerOnly) {
     Write-Host "`nDone (PyInstaller only)." -ForegroundColor Green
     exit 0

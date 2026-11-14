@@ -62,6 +62,24 @@ class RingLayoutTest(unittest.TestCase):
         self.assertEqual(island.ring_at(3, -5, -5), -1)
 
 
+class RingsStayCentredTest(unittest.TestCase):
+    """While the card widens from pill to panel, the rings must not slide."""
+
+    def test_ring_screen_x_constant_through_the_drop(self):
+        from types import SimpleNamespace
+
+        import widget
+
+        fake = SimpleNamespace(_alerts=[object()] * 3)
+        pill = island.pill_width(3)
+        win = island.panel_width(3) + 40   # window is fixed through the drop
+        xs = set()
+        for cardw in (pill, pill + 37.5, island.panel_width(3)):
+            card_left = (win - cardw) / 2.0
+            xs.add(card_left + widget.MonitorWidget._island_pill_offset(fake, cardw))
+        self.assertEqual(len(xs), 1)
+
+
 class DropdownHitTest(unittest.TestCase):
     # Criterion 5
     def test_row_at_maps_y_to_index(self):
