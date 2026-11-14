@@ -76,12 +76,12 @@ try {
     Pop-Location
 }
 
-$distApp = Join-Path $Dist 'MemoryAnalyzer'
-if (-not (Test-Path (Join-Path $distApp 'MemoryAnalyzer.exe'))) {
-    throw 'MemoryAnalyzer.exe not produced'
+$distApp = Join-Path $Dist 'Sirahlyzer'
+if (-not (Test-Path (Join-Path $distApp 'Sirahlyzer.exe'))) {
+    throw 'Sirahlyzer.exe not produced'
 }
-if (-not (Test-Path (Join-Path $distApp 'MemoryBridge.exe'))) {
-    throw 'MemoryBridge.exe not produced'
+if (-not (Test-Path (Join-Path $distApp 'SirahlyzerBridge.exe'))) {
+    throw 'SirahlyzerBridge.exe not produced'
 }
 $sizeMB = (Get-ChildItem $distApp -Recurse | Measure-Object Length -Sum).Sum / 1MB
 Write-Ok ('frozen tree: {0:N1} MB at {1}' -f $sizeMB, $distApp)

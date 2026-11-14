@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Memory Analyzer — Install Guide</title>
-<meta name="description" content="How to install Memory Analyzer, sign in to SirahOS, and have your Claude Code hours logged automatically.">
+<title>Sirahlyzer — Install Guide</title>
+<meta name="description" content="How to install Sirahlyzer, sign in to SirahOS, and have your Claude Code hours logged automatically.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
@@ -391,7 +391,7 @@
   <img src="assets/sirah_logo.jpg" alt="Sirah Digital">
   <div class="cover-text">
     <div class="eyebrow">Sirah Digital · internal tool</div>
-    <h1>Memory Analyzer</h1>
+    <h1>Sirahlyzer</h1>
     <p class="subtitle">
       Your Claude Code hours logged automatically to the right SirahOS
       project — one tile, one sign-in, one install.
@@ -408,7 +408,7 @@
 <nav class="toc">
   <h3>Contents</h3>
   <ol>
-    <li><a href="#what">What Memory Analyzer does for you</a></li>
+    <li><a href="#what">What Sirahlyzer does for you</a></li>
     <li><a href="#before">Before you install</a></li>
     <li><a href="#install">Step 1 — Install from the shared drive</a></li>
     <li><a href="#firstrun">Step 2 — First launch</a></li>
@@ -424,14 +424,14 @@
 
 <!-- ======================== what ======================== -->
 <section class="block" id="what">
-  <h2>What Memory Analyzer does for you</h2>
+  <h2>What Sirahlyzer does for you</h2>
   <p class="goal">
     Thirty seconds, then the detail.
   </p>
   <p>
     Every time you work in a project folder with Claude Code, the tile is
     quietly recording — <strong>which project, how long, what you asked, and
-    what the agent did</strong>. Memory Analyzer rolls those up into one
+    what the agent did</strong>. Sirahlyzer rolls those up into one
     SirahOS <strong>WorkLog</strong> per day per project, logged as you,
     with the hours and a summary. The <strong>SirahOS WorkLogs</strong> page
     stays the way you already use it; nothing in your existing timesheets
@@ -479,7 +479,7 @@
   <ul>
     <li>A <strong>Windows 10 or 11</strong> laptop (every teammate is on one).</li>
     <li>Your <strong>SirahOS email + password</strong>. The same one you use at
-      <a href="https://sirahos.sirahdigital.in">sirahos.sirahdigital.in</a>.
+      <a href="https://api.os.sirahagents.com">api.os.sirahagents.com</a>.
       Your account must be <code>ACTIVE</code> — ask an admin if unsure.</li>
     <li>A location on disk where your Claude Code projects live (anywhere
       is fine; the tile reads them as you open them).</li>
@@ -505,8 +505,8 @@
 
   <ol>
     <li>Open the shared drive location where the installer lives
-        (your admin will send the link — usually <code>\\sirahdigital-nas\installers\MemoryAnalyzerSetup.exe</code>).</li>
-    <li>Double-click <strong>MemoryAnalyzerSetup.exe</strong>.</li>
+        (your admin will send the link — usually <code>\\sirahdigital-nas\installers\sirahlyzer-team.zip</code>).</li>
+    <li>Double-click <strong>sirahlyzer-team.zip</strong>.</li>
     <li>Windows SmartScreen may show
         <em>“Windows protected your PC”</em>. This is normal for internal
         software — the installer is not signed with a public EV certificate.
@@ -525,19 +525,19 @@
 
   <ol start="4">
     <li>In the installer, keep the default install location
-        (<code class="mono">%LOCALAPPDATA%\MemoryAnalyzer</code>) and click
+        (<code class="mono">%LOCALAPPDATA%\Sirahlyzer</code>) and click
         <strong>Next</strong>.</li>
     <li>On the <strong>Select Additional Tasks</strong> page, keep both
         default ticks:
         <ul>
           <li><strong>Push WorkLogs to SirahOS every 15 minutes</strong>
               (SirahOSBridge task).</li>
-          <li><strong>Start Memory Analyzer at Windows logon</strong>
+          <li><strong>Start Sirahlyzer at Windows logon</strong>
               (so the tile is there every morning).</li>
         </ul>
     </li>
     <li>Click <strong>Install</strong> and wait ~30 seconds.</li>
-    <li>Leave the <strong>Launch Memory Analyzer and open the SirahOS
+    <li>Leave the <strong>Launch Sirahlyzer and open the SirahOS
         sign-in</strong> option ticked and click <strong>Finish</strong>.</li>
   </ol>
 
@@ -567,7 +567,7 @@
 
   <figure class="shot" style="background:transparent;border:0;padding:0">
     <div style="display:flex; justify-content:center; padding:20px">
-      <div class="tile-mock" aria-label="Illustration of the Memory Analyzer tile">
+      <div class="tile-mock" aria-label="Illustration of the Sirahlyzer tile">
         <div class="row"><span class="label">CPU</span><span class="val">28%</span></div>
         <div class="bar cpu"><span></span></div>
         <div class="row"><span class="label">RAM</span><span class="val">54% · 13.7 GB</span></div>
@@ -610,7 +610,7 @@
     <li>In the dashboard, click the <strong>SirahOS</strong> tab in the
         top bar.</li>
     <li>Enter your SirahOS <strong>email</strong> and <strong>password</strong>
-        — the same ones you use at sirahos.sirahdigital.in.</li>
+        — the same ones you use to sign in to SirahOS.</li>
     <li>Click <strong>Sign in</strong>.</li>
   </ol>
 
@@ -688,7 +688,7 @@
   <p class="goal">Open SirahOS and watch a WorkLog appear.</p>
 
   <ol>
-    <li>Go to <a href="https://sirahos.sirahdigital.in/worklogs">sirahos.sirahdigital.in/worklogs</a>.</li>
+    <li>Go to the SirahOS <b>Work Logs</b> page in your browser.</li>
     <li>Pick <strong>My logs</strong>, then the current month.</li>
     <li>You should see a WorkLog for each day you ran Claude Code, tagged
         to the right project, with the right hours, with a note listing the
@@ -745,7 +745,7 @@
       </tr>
       <tr>
         <td><strong>Folder → project map</strong></td>
-        <td class="mono">%LOCALAPPDATA%\MemoryAnalyzer\config.json</td>
+        <td class="mono">%LOCALAPPDATA%\Sirahlyzer\config.json</td>
         <td>Edited from the SirahOS tab (Step 4).</td>
       </tr>
     </tbody>
@@ -820,23 +820,23 @@
   <div class="shot-pair">
     <figure class="shot">
       <img src="assets/screenshots/dashboard-overview-dark.png"
-           alt="Memory Analyzer dashboard, Overview tab, dark theme.">
+           alt="Sirahlyzer dashboard, Overview tab, dark theme.">
       <figcaption>Overview tab — dark theme</figcaption>
     </figure>
     <figure class="shot">
       <img src="assets/screenshots/dashboard-overview-light.png"
-           alt="Memory Analyzer dashboard, Overview tab, light theme.">
+           alt="Sirahlyzer dashboard, Overview tab, light theme.">
       <figcaption>Overview tab — light theme</figcaption>
     </figure>
   </div>
   <figure class="shot">
     <img src="assets/screenshots/dashboard-memory-dark.png"
-         alt="Memory Analyzer dashboard, Memory tab, dark theme.">
+         alt="Sirahlyzer dashboard, Memory tab, dark theme.">
     <figcaption>Memory tab — search what past turns did, across every project.</figcaption>
   </figure>
   <figure class="shot">
     <img src="assets/screenshots/dashboard-tile-dark.png"
-         alt="Memory Analyzer dashboard, Tile tab, dark theme.">
+         alt="Sirahlyzer dashboard, Tile tab, dark theme.">
     <figcaption>Tile tab — appearance, behaviour, notification settings for the floating widget.</figcaption>
   </figure>
 
@@ -867,7 +867,7 @@
   <p>Yes — just edit the WorkLog on SirahOS directly. The bridge only
      touches WorkLogs it created and never overwrites one you have edited.</p>
 
-  <h4>Does Memory Analyzer slow down Claude Code?</h4>
+  <h4>Does Sirahlyzer slow down Claude Code?</h4>
   <p>No. Hooks only write a short line to a local log and exit; the push
      runs on a separate schedule. On a benchmark the per-hook overhead is
      a few milliseconds.</p>
@@ -880,7 +880,7 @@
      will say "(prompt hidden)" instead.</p>
 
   <h4>I work from home on a tethered phone. Does the bridge still push?</h4>
-  <p>Yes — it is plain outbound HTTPS to <code>sirahos.sirahdigital.in</code>,
+  <p>Yes — it is plain outbound HTTPS to <code>api.os.sirahagents.com</code>,
      the same thing your browser uses. No tunnel, no inbound ports.</p>
 
   <h4>My laptop was offline all week. Will I lose those WorkLogs?</h4>
@@ -900,7 +900,7 @@
   <p class="goal">All traces removed in two clicks.</p>
   <ol>
     <li>Open <strong>Settings → Apps → Installed apps</strong>.</li>
-    <li>Find <strong>Memory Analyzer</strong>, click the three dots,
+    <li>Find <strong>Sirahlyzer</strong>, click the three dots,
         <strong>Uninstall</strong>.</li>
   </ol>
   <p>
@@ -914,7 +914,7 @@
 </section>
 
 <footer class="page-footer">
-  <div>Memory Analyzer v1.0 · Sirah Digital internal release · 2026-11-04</div>
+  <div>Sirahlyzer v1.0 · Sirah Digital internal release · 2026-11-04</div>
   <div>Trouble installing? Ping the engineering channel.</div>
 </footer>
 

@@ -67,10 +67,15 @@ def _notify_command(action: str, python: str = "python", root: str = "") -> str:
     return f'{python} "{script}" {action}'
 
 
-def _entry(action: str, python: str, root: str, is_async: bool = True) -> dict:
+def _entry(action: str, python: str, root: str, is_async: bool = True,
+           exe: str = "") -> dict:
+    if exe:
+        command = f'"{exe}" notify {action}'
+    else:
+        command = _notify_command(action, python, root)
     entry = {
         "type": "command",
-        "command": _notify_command(action, python, root),
+        "command": command,
         "timeout": TIMEOUT_SECONDS,
     }
     if is_async:
@@ -104,7 +109,8 @@ def _is_ours(group: dict, root: str) -> bool:
 
 
 def install(
-    scope: str = "user", python: str = "python", root: str = "", backup: bool = True
+    scope: str = "user", python: str = "python", root: str = "", backup: bool = True,
+    exe: str = "",
 ) -> dict:
     """Write the hooks. Returns a report; raises only on an unwritable file."""
     root = root or HERE
@@ -132,7 +138,7 @@ def install(
         report["kept_foreign"] += len(foreign)
         (report["replaced"] if ours else report["added"]).append(event)
         # Ours goes last, so anything the user already had still runs first.
-        hooks[event] = foreign + [_entry(action, python, root, is_async)]
+        hooks[event] = foreign + [_entry(action, python, root, is_async, exe=exe)]
 
     settings["hooks"] = hooks
     tmp = path + ".tmp"

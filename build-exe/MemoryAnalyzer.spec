@@ -107,7 +107,7 @@ tile_exe = EXE(
     tile_analysis.scripts,
     [],
     exclude_binaries=True,
-    name='MemoryAnalyzer',
+    name='Sirahlyzer',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -135,7 +135,7 @@ bridge_exe = EXE(
     bridge_analysis.scripts,
     [],
     exclude_binaries=True,
-    name='MemoryBridge',
+    name='SirahlyzerBridge',
     debug=False,
     console=False,           # Scheduled task runs headless.
     icon=None,
@@ -150,5 +150,5 @@ coll = COLLECT(
     strip=False,
     upx=False,
     upx_exclude=[],
-    name='MemoryAnalyzer',
+    name='Sirahlyzer',
 )

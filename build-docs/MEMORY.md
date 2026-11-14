@@ -88,6 +88,15 @@ updated whenever a decision is made.
   WorkLogs across the whole team until rotated, whereas a leaked JWT is
   one user's. The per-user path also keeps the server unchanged. No
   SirahOS-side code is needed for the bridge to work.
+- **Live SirahOS API is `https://api.os.sirahagents.com` (2026-11-14).**
+  Project membership IS enforced: a WorkLog with a `projectId` the user
+  isn't a member of returns 403. Test with a real member account.
+- **Team build is named Sirahlyzer and ships as a zip, not an installer
+  (2026-11-14).** Inno Setup isn't on the build box. `setup.cmd` in the zip
+  wires Claude Code hooks to `SirahlyzerBridge.exe notify <action>` (no
+  Python on teammates' laptops) and registers the push task. The state dir
+  stays `%LOCALAPPDATA%\SystemMonitorWidget` so upgrades keep their data.
+  Island is on by default; an old `config.json` beside the exe overrides it.
 
 - **The no-new-dependency constraint was reversed for media now-playing
   (2026-11-14), by explicit user decision.** The Dynamic Island shows the

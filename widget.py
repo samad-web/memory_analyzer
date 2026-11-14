@@ -173,8 +173,8 @@ DEFAULTS = {
     "locked": False,
     # The Dynamic Island view: a compact pill of session rings that expands
     # into a clickable dropdown, with the system's now-playing media under it.
-    # Off by default -- the monitor is the tile's primary face.
-    "island": False,
+    # On by default for the team build -- the island is the shipped face.
+    "island": True,
     # Locked: the island hangs fixed top-centre of every screen (and mirrors
     # onto both). Unlocked: one draggable island whose position persists.
     "island_locked": True,
