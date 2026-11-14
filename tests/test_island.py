@@ -78,6 +78,26 @@ class DropdownHitTest(unittest.TestCase):
         self.assertEqual(island.row_at(top + 1, 0), -1)    # no rows at all
 
 
+class LogoPathTest(unittest.TestCase):
+    def test_finds_a_logo_in_a_conventional_place(self):
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as root:
+            assets = os.path.join(root, "assets")
+            os.makedirs(assets)
+            logo = os.path.join(assets, "logo.png")
+            open(logo, "wb").close()
+            self.assertEqual(island.logo_path(root), logo)
+
+    def test_returns_none_when_absent(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as root:
+            self.assertIsNone(island.logo_path(root))
+        self.assertIsNone(island.logo_path(""))
+
+
 class NowPlayingTest(unittest.TestCase):
     def test_ident_excludes_art(self):
         """Art is refetched only when the track changes, so it must not be part

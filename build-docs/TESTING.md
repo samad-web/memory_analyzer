@@ -101,3 +101,13 @@ need something actually playing; the WinRT API path itself is confirmed
 (`request_async` / `get_current_session` / controls all resolve). M4
 (degrade-to-unavailable) is by construction -- `media.py` guards its import and
 gates everything on `MediaWatcher.available`.
+
+## feat(dynamic-island) -- refinements
+
+`tests/test_island.py` grew logo_path cases (finds a conventional logo, None
+when absent); 15 pass. Offscreen smoke re-run across all states with the
+animated size (collapsed/mid/open) -- no paint error. Verified live on a
+dual-monitor setup: the island drops from the top edge on hover, both screens
+show a synced copy, the memory row reads CPU/RAM/GPU, and the media controls
+drive the real player. Logo-in-ring not verified live (no project here ships a
+logo file); the path lookup is unit-tested and the ring falls back to initials.

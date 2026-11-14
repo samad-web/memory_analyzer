@@ -137,3 +137,12 @@ media (title/artist/art + play/pause/prev/next) via WinRT.
 New: `island.py` (pure layout/identity), `media.py` (WinRT watcher, degrades to
 unavailable if the winrt-* packages are missing). Reverses the
 no-new-dependency rule for media by explicit decision (build-docs/MEMORY).
+
+## feat(dynamic-island) -- refinements
+
+Drops down from the top edge (240ms OutCubic, flush top / rounded bottom,
+black bg) like HeyyCzer/windows-dynamic-island; mirrored on every monitor via
+a stateless IslandClone (hover/expand global, synced at 50ms); the ring now
+shows the project's own logo from its directory (island.logo_path, initials
+fallback); the open panel carries a CPU/RAM/GPU readout + free-RAM button;
+higher opacity. Island is top-centre per screen, not draggable.

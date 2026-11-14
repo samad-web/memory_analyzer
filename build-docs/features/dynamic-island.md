@@ -99,6 +99,32 @@ Acceptance (media):
 M1-M3 are verified by running against a real player; M4 by importing `media`
 with the dependency masked (unit test).
 
+## Refinements (2026-11-14, after first build)
+
+Driven by follow-up requests and the reference repo
+`github.com/HeyyCzer/windows-dynamic-island`:
+
+- **Drops from the top edge.** The island hangs flush against the top of the
+  screen (square top corners, rounded bottom -- drawn by pushing the card's top
+  above the window) and the window itself grows downward as it opens. The open
+  is a `QVariantAnimation`, 240 ms, OutCubic in / InCubic out; size and opacity
+  interpolate on `_island_anim_t`. Black (`#000`) background, like the
+  reference. It is top-centred per screen and not dragged.
+- **Present on both screens.** `IslandClone` is a stateless mirror window on
+  every screen other than the tile's own: it paints the tile's island and
+  forwards clicks back to it, a 50 ms timer keeps it in step, and hover/expand
+  is global so hovering either screen opens both. Built/torn down with island
+  mode. `shortcut: clones are fixed at island-enable time; a monitor plugged in
+  mid-session is picked up on the next toggle.`
+- **Project logo in the ring.** `island.logo_path` looks for a real icon
+  (logo/icon/favicon .png/.jpg/.ico) in the project directory and a few
+  conventional subfolders; the ring draws it clipped to the disc, falling back
+  to the initials glyph when none is found. Cached per project. (.svg excluded:
+  the frozen build drops QtSvg.)
+- **Memory analysis in the island.** The open panel carries a CPU / RAM / GPU
+  readout and the free-RAM button (same `self.sample` and `free_memory` as the
+  monitor), so the island is the agent board *and* the system monitor.
+
 ## Impact map
 
 - `island.py` (new): pure, no imports beyond stdlib. Self-check at bottom.

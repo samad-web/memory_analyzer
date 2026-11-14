@@ -8,6 +8,7 @@ sizes are logical pixels; the widget's painter applies the tile scale on top.
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 
 # -- ring / pill geometry ---------------------------------------------------
@@ -121,6 +122,37 @@ def glyph(source: str) -> str:
     if len(words) >= 2:
         return (words[0][0] + words[1][0]).upper()
     return words[0][:2].upper()
+
+
+# A project's own icon, looked for in its directory. Raster + .ico only: the
+# PyInstaller build excludes QtSvg, so an .svg would not render in the frozen
+# tile. Ordered by how likely each is to be the real app icon.
+_LOGO_NAMES = (
+    "logo.png", "icon.png", "app-icon.png", "appicon.png", "logo.jpg",
+    "icon.jpg", "favicon.png", "favicon.ico", "icon.ico", "logo.ico",
+)
+_LOGO_DIRS = ("", "assets", "public", "static", "resources", "images", "img",
+              "build-docs", "docs")
+
+
+def logo_path(project_root: str) -> str | None:
+    """A project's own logo/icon file, if one sits in a usual place, else None.
+
+    Searched shallowly (a handful of names in a handful of conventional
+    folders) -- the ring falls back to the initials glyph when nothing is
+    found, so a miss is cheap and never wrong.
+    """
+    if not project_root:
+        return None
+    for folder in _LOGO_DIRS:
+        for name in _LOGO_NAMES:
+            candidate = os.path.join(project_root, folder, name)
+            try:
+                if os.path.isfile(candidate):
+                    return candidate
+            except OSError:
+                continue
+    return None
 
 
 def hue(key: str) -> int:
