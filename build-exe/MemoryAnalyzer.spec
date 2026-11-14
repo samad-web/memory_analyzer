@@ -52,6 +52,27 @@ hiddenimports = [
     '_sqlite3',
 ]
 
+# WinRT now-playing for the Dynamic Island (media.py). Its import is guarded,
+# so PyInstaller's static analysis never sees these compiled extension
+# packages -- collect them explicitly. Wrapped so a build box without the
+# winrt-* packages still produces an exe (media just stays unavailable there).
+winrt_binaries = []
+try:
+    from PyInstaller.utils.hooks import collect_all as _collect_all
+    for _pkg in (
+        'winrt.runtime',
+        'winrt.windows.media.control',
+        'winrt.windows.media',
+        'winrt.windows.storage.streams',
+        'winrt.windows.foundation',
+    ):
+        _d, _b, _h = _collect_all(_pkg)
+        datas += _d
+        winrt_binaries += _b
+        hiddenimports += _h
+except Exception:
+    pass
+
 # Qt plugins we actually need. PySide6 pulls in a lot by default; the tile
 # only uses the platform plugin and the imageformats, so skipping the heavy
 # Qml/WebEngine trees saves ~150 MB.
@@ -69,7 +90,7 @@ qt_excludes = [
 tile_analysis = Analysis(
     [os.path.join(ROOT, 'widget.py')],
     pathex=[ROOT],
-    binaries=[],
+    binaries=winrt_binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],

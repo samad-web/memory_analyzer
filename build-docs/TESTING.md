@@ -82,3 +82,22 @@ The crypto is the one thing that cannot be checked by agreeing with
 itself, so `tests/test_push.CurveTest` asserts RFC 6979's published `r`
 and `s` for P-256/SHA-256 on two messages. If the curve arithmetic, the
 hash handling or the nonce derivation were wrong, they could not match.
+
+## feat(dynamic-island)
+
+`tests/test_island.py` covers the Qt-free core (criteria 2-5, media change
+signature): glyph initials, deterministic hue, ring cap/count/hit-test,
+dropdown row_at, and that `NowPlaying.ident` excludes the art bytes. 13 pass.
+
+Offscreen Qt smoke (QT_QPA_PLATFORM=offscreen, scratchpad harness): rendered
+the island in empty/one-working/mixed/overflow x collapsed/expanded x
+with/without media -- no paint error -- and a ring click resolved to the right
+session (criteria 6-8 paint + hit paths). Full suite: 360 pass after adding
+`island`/`media` to deploy.py + install.ps1 (bundle-closure test caught the
+omission, as designed).
+
+Not yet verified live: M2/M3 (title/art and transport against a real player)
+need something actually playing; the WinRT API path itself is confirmed
+(`request_async` / `get_current_session` / controls all resolve). M4
+(degrade-to-unavailable) is by construction -- `media.py` guards its import and
+gates everything on `MediaWatcher.available`.

@@ -191,7 +191,7 @@ $reporterFiles = @(
     'store.py', 'observe.py', 'goals.py', 'context.py', 'mcp_server.py'
 )
 $fullFiles = @(
-    'widget.py', 'dashboard.py', 'charts.py', 'viz.py', 'webserver.py',
+    'widget.py', 'island.py', 'media.py', 'dashboard.py', 'charts.py', 'viz.py', 'webserver.py',
     'memory.py', 'deploy.py', 'run.vbs', 'run.bat', 'schema.sql',
     'tokens.py', 'vapid.py', 'push.py', 'pwa.py',
     # SirahOS WorkLog bridge: client + aggregator. Scheduled as its own

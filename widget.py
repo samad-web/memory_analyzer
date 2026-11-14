@@ -48,6 +48,8 @@ from PySide6.QtWidgets import (
 
 import agent_alert
 import identity as identity_module
+import island
+import media
 import sensors
 import stats
 
@@ -98,6 +100,7 @@ ALERT_WORK = QColor(96, 165, 250)     # running a task
 # times a second -- which looks like the tile glitching, not like it breathing.
 # A cosine between two bounds, sampled whenever a frame happens to be painted,
 # is independent of who asked for the repaint.
+SPIN_PERIOD = 1.1           # seconds per rotation of a working session's ring
 PULSE_PERIOD = 2.4          # seconds for one full breathe of a waiting banner
 FLASH_SECONDS = 2.8         # how long the ring glows after an alert arrives
 FLASH_PERIOD = 0.9          # seconds per cycle of the ring inside that window
@@ -167,6 +170,10 @@ DEFAULTS = {
     "fan_max_rpm": 6000,
     "scale": 1.0,
     "locked": False,
+    # The Dynamic Island view: a compact pill of session rings that expands
+    # into a clickable dropdown, with the system's now-playing media under it.
+    # Off by default -- the monitor is the tile's primary face.
+    "island": False,
     # Trim automatically once memory passes either limit (percent of total, or
     # gigabytes in use) -- whichever is reached first.
     "auto_trim": True,
@@ -355,6 +362,13 @@ class MonitorWidget(QWidget):
         self._stats_summary: dict | None = None
         self._scorecard: ScorecardWindow | None = None
         self._dashboard = None
+        # Dynamic Island state. Expanded when hovered or when a session wants
+        # attention; the media watcher reads the system's current track.
+        self._island_expanded = False
+        self._island_hover = False
+        self._media: media.MediaWatcher | None = None
+        self._now: media.NowPlaying | None = None
+        self._art_pixmap: tuple | None = None  # (id(bytes), QPixmap) cache
         # Declared before the sampler starts, so a sample arriving early finds
         # the attribute rather than an AttributeError.
         self._syncer: SyncThread | None = None
@@ -432,14 +446,20 @@ class MonitorWidget(QWidget):
         if self.cfg.get("web_enabled"):
             self._start_web()
 
+        # The island shows now-playing media, so its watcher runs only in that
+        # mode. It self-disables if the winrt packages are missing.
+        if self.cfg.get("island"):
+            self._start_media()
+
     # -- size ----------------------------------------------------------------
 
     def _apply_size(self) -> None:
         """Set the real window size from the logical layout and the scale."""
-        self.setFixedSize(
-            max(1, round(WIDTH * self.scale)),
-            max(1, round(self._logical_h * self.scale)),
-        )
+        if self.cfg.get("island"):
+            w, h = self._island_logical_size()
+        else:
+            w, h = WIDTH, self._logical_h
+        self.setFixedSize(max(1, round(w * self.scale)), max(1, round(h * self.scale)))
 
     def _to_logical(self, point: QPoint) -> QPoint:
         """Map a physical widget coordinate back into layout coordinates.
@@ -577,6 +597,10 @@ class MonitorWidget(QWidget):
 
     def _resize_for_alerts(self) -> None:
         self._rebuild_rows()
+        if self.cfg.get("island"):
+            self._island_expanded = self._island_wants_expand()
+            self._apply_size()
+            return
         rows = len(self._rows) + (1 if self._hidden_rows else 0)
         height = BASE_HEIGHT + (rows * ALERT_ROW_H + 4 if rows else 0)
         if height != self._logical_h:
@@ -642,8 +666,16 @@ class MonitorWidget(QWidget):
 
     def _sync_anim(self) -> None:
         """Run the animation timer only while there is something to animate."""
-        want = any(a.needs_input for a in self._alerts) or (
-            time.monotonic() < self._flash_until
+        want = (
+            any(a.needs_input for a in self._alerts)
+            or time.monotonic() < self._flash_until
+            # The island's working rings rotate, so it animates while any
+            # session is on a task and the tile is on screen.
+            or (
+                self.cfg.get("island")
+                and self.isVisible()
+                and any(a.kind == agent_alert.WORKING for a in self._alerts)
+            )
         )
         if want and not self._anim_timer.isActive():
             self._anim_timer.start(ANIM_INTERVAL_MS)
@@ -674,6 +706,11 @@ class MonitorWidget(QWidget):
         fade = min(1.0, left / FLASH_SECONDS)
         phase = (left % FLASH_PERIOD) / FLASH_PERIOD
         return fade * (0.5 - 0.5 * math.cos(2 * math.pi * phase))
+
+    def _spin_angle(self) -> float:
+        """Current rotation in degrees of a working ring's arc."""
+        phase = (time.monotonic() % SPIN_PERIOD) / SPIN_PERIOD
+        return phase * 360.0
 
     def focus_agent(self, alert: agent_alert.Alert) -> None:
         """Bring the clicked session's own window to the front.
@@ -810,6 +847,397 @@ class MonitorWidget(QWidget):
         note = QFontMetrics(p.font()).elidedText(note, Qt.ElideRight, max(0, room))
         self._draw_right(p, note, WIDTH - PAD, baseline, colour)
 
+    # -- Dynamic Island ------------------------------------------------------
+
+    ISLAND_MEDIA_H = 54        # expanded media strip height (logical px)
+    ISLAND_MEDIA_ART = 38
+    ISLAND_MEDIA_BTN = 26
+
+    def _island_rows(self) -> tuple[list, int]:
+        """Sessions listed in the dropdown (capped), and how many are hidden."""
+        shown = self._alerts[:MAX_ALERT_ROWS]
+        return shown, max(0, len(self._alerts) - len(shown))
+
+    def _island_wants_expand(self) -> bool:
+        """Open the dropdown when hovered, or whenever a session wants you."""
+        attention = any(a.attention for a in self._alerts)
+        has_content = bool(self._alerts) or self._now is not None
+        return attention or (self._island_hover and has_content)
+
+    def _island_media_top(self) -> int:
+        rows, hidden = self._island_rows()
+        n_rows = len(rows) + (1 if hidden else 0)
+        return island.PILL_H + island.rows_height(n_rows)
+
+    def _island_logical_size(self) -> tuple[int, int]:
+        n = len(self._alerts)
+        playing = self._now is not None
+        if not self._island_expanded:
+            w, h = island.pill_size(n)
+            if n == 0 and playing:
+                w = max(w, 150)   # room for art + title + a play/pause button
+            return w, h
+        w = island.panel_width(n)
+        h = self._island_media_top()
+        if playing:
+            h += self.ISLAND_MEDIA_H
+        return w, h
+
+    def _paint_island(self, p: QPainter) -> None:
+        w, h = self._island_logical_size()
+        # The island is a control surface, so it stays legible even when the
+        # monitor card is set transparent.
+        alpha = max(170, int(self.cfg["bg_alpha"]))
+        radius = island.PILL_H / 2 if not self._island_expanded else 18
+        card = QPainterPath()
+        card.addRoundedRect(QRectF(0.5, 0.5, w - 1, h - 1), radius, radius)
+        p.fillPath(card, QColor(10, 11, 16, alpha))
+        p.setBrush(Qt.NoBrush)
+        p.setPen(QPen(QColor(255, 255, 255, 30), 1))
+        p.drawPath(card)
+
+        n = len(self._alerts)
+        if n:
+            self._paint_island_rings(p, n)
+        elif self._now is not None and not self._island_expanded:
+            self._paint_island_media_mini(p, w)
+        else:
+            self._paint_island_idle(p, w)
+
+        if self._island_expanded:
+            self._paint_island_rows(p)
+            if self._now is not None:
+                self._paint_island_media(p, w, self._island_media_top())
+
+    def _paint_island_rings(self, p: QPainter, n: int) -> None:
+        for i, (x, y, d) in enumerate(island.ring_rects(n)):
+            self._paint_ring(p, self._alerts[i], x, y, d)
+        badge = island.badge_pos(n)
+        if badge:
+            bx, by, _bw = badge
+            p.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+            self._draw_text(p, bx, by + island.RING_D // 2 + 5,
+                            f"+{island.overflow(n)}", DIM)
+
+    def _ring_arc(self, alert: agent_alert.Alert) -> tuple[QColor, float, float]:
+        """(colour, span_deg, start_deg) for a session's ring."""
+        if alert.kind == agent_alert.WORKING:
+            return QColor(ALERT_WORK), -270.0, -self._spin_angle()
+        if alert.needs_input:
+            c = QColor(ALERT_WAIT)
+            c.setAlpha(170 + int(85 * self._pulse_level()))
+            return c, 360.0, 90.0
+        return QColor(ALERT_DONE), 360.0, 90.0
+
+    def _paint_ring(
+        self, p: QPainter, alert: agent_alert.Alert, x: float, y: float, d: float
+    ) -> None:
+        cx, cy = x + d / 2, y + d / 2
+        disc_r = d / 2 - 4
+        disc = QColor.fromHsv(island.hue(alert.project_key), 130, 165)
+        p.setPen(Qt.NoPen)
+        p.setBrush(disc)
+        p.drawEllipse(QRectF(cx - disc_r, cy - disc_r, 2 * disc_r, 2 * disc_r))
+
+        p.setPen(QColor(255, 255, 255, 235))
+        p.setFont(QFont("Segoe UI", max(6, int(disc_r * 0.75)), QFont.Weight.Bold))
+        p.drawText(
+            QRectF(cx - disc_r, cy - disc_r, 2 * disc_r, 2 * disc_r),
+            Qt.AlignCenter, island.glyph(alert.source),
+        )
+
+        colour, span, start = self._ring_arc(alert)
+        p.setBrush(Qt.NoBrush)
+        p.setPen(QPen(colour, 3, Qt.SolidLine, Qt.RoundCap))
+        p.drawArc(QRectF(x + 1.5, y + 1.5, d - 3, d - 3),
+                  int(start * 16), int(span * 16))
+
+    def _paint_island_idle(self, p: QPainter, w: float) -> None:
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(255, 255, 255, 45))
+        cy = island.PILL_H / 2
+        p.drawEllipse(QRectF(w / 2 - 4, cy - 4, 8, 8))
+
+    def _paint_island_rows(self, p: QPainter) -> None:
+        rows, hidden = self._island_rows()
+        top = island.rows_top()
+        for i, alert in enumerate(rows):
+            self._paint_island_row(p, alert, top + i * island.ROW_H)
+        if hidden:
+            y = top + len(rows) * island.ROW_H + 13
+            p.setFont(QFont("Consolas", 8))
+            self._draw_text(p, island.PILL_PAD + 2, y, f"+{hidden} more", DIM)
+
+    def _paint_island_row(
+        self, p: QPainter, alert: agent_alert.Alert, y: float
+    ) -> None:
+        d = island.SMALL_RING_D
+        x = island.PILL_PAD
+        cy = y + island.ROW_H / 2
+        self._paint_ring(p, alert, x, cy - d / 2, d)
+
+        name_font = QFont("Segoe UI", 8, QFont.Weight.DemiBold)
+        p.setFont(name_font)
+        name = alert.source[:22]
+        self._draw_text(p, int(x + d + 8), int(cy) + 4, name, TEXT)
+
+        colour = {
+            agent_alert.NEEDS_INPUT: ALERT_WAIT,
+            agent_alert.WORKING: ALERT_WORK,
+        }.get(alert.kind, ALERT_DONE)
+        note = alert.age_text if alert.kind == agent_alert.DONE else (
+            alert.message or alert.age_text
+        )
+        p.setFont(QFont("Consolas", 8))
+        w = island.panel_width(len(self._alerts))
+        name_w = QFontMetrics(name_font).horizontalAdvance(name)
+        room = (w - island.PILL_PAD) - (x + d + 8 + name_w + 10)
+        note = QFontMetrics(p.font()).elidedText(note, Qt.ElideRight, max(0, int(room)))
+        self._draw_right(p, note, w - island.PILL_PAD, int(cy) + 4, colour)
+
+    # -- media strip ---------------------------------------------------------
+
+    def _art_pixmap_for(self):
+        """QPixmap of the current album art, cached by the art bytes' identity."""
+        now = self._now
+        if now is None or not now.art:
+            return None
+        key = id(now.art)
+        if self._art_pixmap and self._art_pixmap[0] == key:
+            return self._art_pixmap[1]
+        pm = QPixmap()
+        pm = pm if pm.loadFromData(now.art) else None
+        self._art_pixmap = (key, pm)
+        return pm
+
+    def _paint_art(self, p: QPainter, x: float, y: float, d: float, circle: bool) -> None:
+        path = QPainterPath()
+        if circle:
+            path.addEllipse(QRectF(x, y, d, d))
+        else:
+            path.addRoundedRect(QRectF(x, y, d, d), 6, 6)
+        pm = self._art_pixmap_for()
+        if pm is not None:
+            p.save()
+            p.setClipPath(path)
+            p.drawPixmap(QRectF(x, y, d, d).toRect(), pm)
+            p.restore()
+            return
+        # No art: a flat chip with a small note glyph.
+        p.setPen(Qt.NoPen)
+        p.fillPath(path, QColor(255, 255, 255, 30))
+        cx, cy = x + d / 2, y + d / 2
+        p.setPen(QPen(DIM, 1.4))
+        p.setBrush(DIM)
+        p.drawEllipse(QRectF(cx - 5, cy + 1, 3.5, 3.5))
+        p.setBrush(Qt.NoBrush)
+        p.drawLine(int(cx - 1.5), int(cy + 3), int(cx - 1.5), int(cy - 5))
+        p.drawLine(int(cx - 1.5), int(cy - 5), int(cx + 4), int(cy - 6))
+        p.drawLine(int(cx + 4), int(cy - 6), int(cx + 4), int(cy + 1))
+
+    def _media_button_xs(self, w: float) -> tuple[float, float, float]:
+        """x-centres of prev, play/pause, next in the expanded strip."""
+        pad = island.PILL_PAD
+        btn = self.ISLAND_MEDIA_BTN
+        nx = w - pad - btn / 2
+        px = nx - btn - 6
+        pv = px - btn - 6
+        return pv, px, nx
+
+    def _paint_island_media(self, p: QPainter, w: float, top: float) -> None:
+        now = self._now
+        pad = island.PILL_PAD
+        p.setPen(QPen(QColor(255, 255, 255, 22), 1))
+        p.drawLine(int(pad), int(top), int(w - pad), int(top))
+
+        art = self.ISLAND_MEDIA_ART
+        ay = top + (self.ISLAND_MEDIA_H - art) / 2
+        self._paint_art(p, pad, ay, art, circle=False)
+
+        cy = top + self.ISLAND_MEDIA_H / 2
+        pv, px, nx = self._media_button_xs(w)
+        self._paint_prev_glyph(p, pv, cy, now.can_prev)
+        self._paint_play_glyph(p, px, cy, now.playing, now.can_play_pause)
+        self._paint_next_glyph(p, nx, cy, now.can_next)
+
+        tx = pad + art + 10
+        troom = (pv - self.ISLAND_MEDIA_BTN / 2 - 8) - tx
+        p.setFont(QFont("Segoe UI", 8, QFont.Weight.DemiBold))
+        title = QFontMetrics(p.font()).elidedText(
+            now.title or "Playing", Qt.ElideRight, max(10, int(troom))
+        )
+        self._draw_text(p, int(tx), int(cy) - 2, title, TEXT)
+        if now.artist:
+            p.setFont(QFont("Consolas", 8))
+            artist = QFontMetrics(p.font()).elidedText(
+                now.artist, Qt.ElideRight, max(10, int(troom))
+            )
+            self._draw_text(p, int(tx), int(cy) + 12, artist, DIM)
+
+    def _paint_island_media_mini(self, p: QPainter, w: float) -> None:
+        now = self._now
+        pad = island.PILL_PAD
+        d = island.RING_D
+        cy = island.PILL_H / 2
+        self._paint_art(p, pad, (island.PILL_H - d) / 2, d, circle=True)
+        bx = w - pad - 12
+        self._paint_play_glyph(p, bx, cy, now.playing, now.can_play_pause)
+        p.setFont(QFont("Segoe UI", 8, QFont.Weight.DemiBold))
+        tx = pad + d + 8
+        room = (bx - 16) - tx
+        title = QFontMetrics(p.font()).elidedText(
+            now.title or "Playing", Qt.ElideRight, max(10, int(room))
+        )
+        self._draw_text(p, int(tx), int(cy) + 4, title, TEXT)
+
+    def _paint_play_glyph(
+        self, p: QPainter, cx: float, cy: float, playing: bool, enabled: bool = True
+    ) -> None:
+        col = TEXT if enabled else DIM
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(255, 255, 255, 28))
+        p.drawEllipse(QRectF(cx - 13, cy - 13, 26, 26))
+        p.setBrush(col)
+        if playing:
+            p.drawRect(QRectF(cx - 4.5, cy - 6, 3.2, 12))
+            p.drawRect(QRectF(cx + 1.3, cy - 6, 3.2, 12))
+        else:
+            tri = QPainterPath()
+            tri.moveTo(cx - 4, cy - 6)
+            tri.lineTo(cx - 4, cy + 6)
+            tri.lineTo(cx + 6, cy)
+            tri.closeSubpath()
+            p.fillPath(tri, col)
+
+    def _paint_prev_glyph(self, p: QPainter, cx: float, cy: float, enabled: bool) -> None:
+        col = TEXT if enabled else DIM
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(255, 255, 255, 20))
+        p.drawEllipse(QRectF(cx - 13, cy - 13, 26, 26))
+        tri = QPainterPath()
+        tri.moveTo(cx + 4, cy - 5)
+        tri.lineTo(cx + 4, cy + 5)
+        tri.lineTo(cx - 3, cy)
+        tri.closeSubpath()
+        p.fillPath(tri, col)
+        p.setPen(QPen(col, 2))
+        p.drawLine(int(cx - 5), int(cy - 5), int(cx - 5), int(cy + 5))
+
+    def _paint_next_glyph(self, p: QPainter, cx: float, cy: float, enabled: bool) -> None:
+        col = TEXT if enabled else DIM
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(255, 255, 255, 20))
+        p.drawEllipse(QRectF(cx - 13, cy - 13, 26, 26))
+        tri = QPainterPath()
+        tri.moveTo(cx - 4, cy - 5)
+        tri.lineTo(cx - 4, cy + 5)
+        tri.lineTo(cx + 3, cy)
+        tri.closeSubpath()
+        p.fillPath(tri, col)
+        p.setPen(QPen(col, 2))
+        p.drawLine(int(cx + 5), int(cy - 5), int(cx + 5), int(cy + 5))
+
+    # -- island interaction --------------------------------------------------
+
+    @staticmethod
+    def _hit_circle(x: float, y: float, cx: float, cy: float, r: float) -> bool:
+        return (x - cx) ** 2 + (y - cy) ** 2 <= r * r
+
+    def _island_media_hit(self, x: float, y: float):
+        """The media control under a point, as a zero-arg callable, or None."""
+        if self._media is None or self._now is None:
+            return None
+        now = self._now
+        if self._island_expanded:
+            top = self._island_media_top()
+            if y < top:
+                return None
+            w, _ = self._island_logical_size()
+            cy = top + self.ISLAND_MEDIA_H / 2
+            r = self.ISLAND_MEDIA_BTN / 2
+            pv, px, nx = self._media_button_xs(w)
+            if now.can_prev and self._hit_circle(x, y, pv, cy, r):
+                return self._media.previous
+            if now.can_play_pause and self._hit_circle(x, y, px, cy, r):
+                return self._media.toggle_play_pause
+            if now.can_next and self._hit_circle(x, y, nx, cy, r):
+                return self._media.next
+            return None
+        # Collapsed media mini only exists when no sessions are shown.
+        if self._alerts or not now.can_play_pause:
+            return None
+        w, _ = self._island_logical_size()
+        if self._hit_circle(x, y, w - island.PILL_PAD - 12, island.PILL_H / 2, 14):
+            return self._media.toggle_play_pause
+        return None
+
+    def _island_click(self, local: QPoint) -> bool:
+        """Handle a left-click in island mode. True if it was consumed."""
+        x, y = local.x(), local.y()
+        action = self._island_media_hit(x, y)
+        if action is not None:
+            action()
+            return True
+        n = len(self._alerts)
+        # Rings live in the pill strip in both states; rows only when expanded.
+        if y <= island.PILL_H:
+            i = island.ring_at(n, x, y)
+            if 0 <= i < n:
+                self.focus_agent(self._alerts[i])
+                return True
+            return False
+        if self._island_expanded:
+            rows, _ = self._island_rows()
+            i = island.row_at(y, len(rows))
+            if 0 <= i < len(rows):
+                self.focus_agent(rows[i])
+                return True
+        return False
+
+    # -- media watcher -------------------------------------------------------
+
+    def _start_media(self) -> None:
+        if not media.MediaWatcher.available:
+            return
+        if self._media is not None and self._media.isRunning():
+            return
+        self._media = media.MediaWatcher()
+        self._media.changed.connect(self._on_media)
+        self._media.start()
+
+    def _stop_media(self) -> None:
+        if self._media is not None:
+            try:
+                self._media.changed.disconnect(self._on_media)
+            except (TypeError, RuntimeError):
+                pass
+            self._media.stop()
+            self._media = None
+        self._now = None
+        self._art_pixmap = None
+
+    def _on_media(self, now) -> None:
+        self._now = now
+        self._art_pixmap = None
+        if self.cfg.get("island"):
+            self._island_expanded = self._island_wants_expand()
+            self._apply_size()
+            self.update()
+
+    def _set_island(self, checked: bool) -> None:
+        self.cfg["island"] = bool(checked)
+        save_config(self.cfg)
+        if checked:
+            self._island_expanded = self._island_wants_expand()
+            self._start_media()
+        else:
+            self._island_expanded = False
+            self._stop_media()
+        self._apply_size()
+        self._place()
+        self._sync_anim()
+        self.update()
+
     # -- tray ----------------------------------------------------------------
 
     def _build_tray(self) -> None:
@@ -867,6 +1295,21 @@ class MonitorWidget(QWidget):
         """
         physical = self.mapFromGlobal(QCursor.pos())
         inside = self.rect().contains(physical)
+        # Island mode: the whole small window is interactive, and hovering it
+        # expands the dropdown. Everything passes through when the cursor is off.
+        if self.cfg.get("island"):
+            self._island_hover = inside
+            want = self._island_wants_expand()
+            if want != self._island_expanded:
+                self._island_expanded = want
+                self._apply_size()
+                self.update()
+            self._set_transparent(bool(self.cfg["click_through"]) and not inside)
+            if inside:
+                self.setCursor(Qt.PointingHandCursor)
+            else:
+                self.unsetCursor()
+            return
         local = self._to_logical(physical)
         over_grip = inside and self._over_grip(local)
         over_ram = inside and self._over_ram_btn(local)
@@ -982,6 +1425,13 @@ class MonitorWidget(QWidget):
         # Everything below is drawn in logical pixels; this is what resizes the
         # tile without reflowing any of its layout.
         p.scale(self.scale, self.scale)
+
+        # The Dynamic Island is a wholly separate face: its own pill/panel,
+        # rings and media strip, none of the monitor layout below.
+        if self.cfg.get("island"):
+            self._paint_island(p)
+            p.end()
+            return
 
         alpha = int(self.cfg["bg_alpha"])
         if alpha > 0:
@@ -1424,6 +1874,17 @@ class MonitorWidget(QWidget):
         if event.button() != Qt.LeftButton:
             return
         local = self._to_logical(event.position().toPoint())
+        # Island mode has its own hit map (rings, dropdown rows, media buttons);
+        # an empty spot drags the pill, as with the monitor's blank area.
+        if self.cfg.get("island"):
+            if self._island_click(local):
+                event.accept()
+                return
+            if not self.cfg["locked"]:
+                origin = event.globalPosition().toPoint()
+                self._drag_offset = origin - self.frameGeometry().topLeft()
+                event.accept()
+            return
         # Bottom-right corner scales the whole tile while dragged.
         if self._over_resize(local):
             self._resizing = True
@@ -1635,6 +2096,15 @@ class MonitorWidget(QWidget):
         stats_line.setToolTip("Show today's tasks, tokens, cost and reply time on the tile")
         stats_line.triggered.connect(self._set_show_stats)
 
+        isle = menu.addAction("Dynamic Island")
+        isle.setCheckable(True)
+        isle.setChecked(bool(self.cfg.get("island")))
+        isle.setToolTip(
+            "Compact pill of live Claude sessions and now-playing media"
+            + ("" if media.MediaWatcher.available else " (media unavailable)")
+        )
+        isle.triggered.connect(self._set_island)
+
         hidden = menu.addAction("Hide from screenshots")
         hidden.setCheckable(True)
         hidden.setChecked(bool(self.cfg["hide_from_capture"]))
@@ -1803,6 +2273,7 @@ class MonitorWidget(QWidget):
             "hide_from_capture": (bool, self._set_hide_from_capture),
             "pop_on_alert": (bool, self._set_pop_on_alert),
             "show_stats": (bool, self._set_show_stats),
+            "island": (bool, self._set_island),
             "locked": (bool, self._toggle_lock),
             "auto_trim": (bool, self._set_auto_trim),
             "auto_trim_pct": (int, self._set_auto_trim_pct),
@@ -1863,6 +2334,7 @@ class MonitorWidget(QWidget):
         if self._web is not None:
             self._web.stop()
             self._web = None
+        self._stop_media()
         if self._syncer is not None:
             # One last push, so the final turns of a session are not stranded
             # on disk until the next launch.

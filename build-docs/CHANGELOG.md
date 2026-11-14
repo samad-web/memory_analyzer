@@ -124,3 +124,16 @@ resume nothing are no longer logged (87% of the log was redundant resumes).
 ## feat(tile) -- 1736201
 
 Always-on-top tile, agent board and dashboard.
+
+## feat(dynamic-island)
+
+A second face for the tile (menu: "Dynamic Island", off by default): a compact
+pill of live Claude sessions as status rings -- rotating arc = working, full
+orange = needs you, green = done, a generated initials glyph in the centre --
+that expands into a clickable dropdown on hover or when a session wants you.
+Clicking a session raises its terminal. Under it, the system's now-playing
+media (title/artist/art + play/pause/prev/next) via WinRT.
+
+New: `island.py` (pure layout/identity), `media.py` (WinRT watcher, degrades to
+unavailable if the winrt-* packages are missing). Reverses the
+no-new-dependency rule for media by explicit decision (build-docs/MEMORY).

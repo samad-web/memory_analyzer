@@ -89,9 +89,20 @@ updated whenever a decision is made.
   one user's. The per-user path also keeps the server unchanged. No
   SirahOS-side code is needed for the bridge to work.
 
+- **The no-new-dependency constraint was reversed for media now-playing
+  (2026-11-14), by explicit user decision.** The Dynamic Island shows the
+  system's current track/artist/art with transport controls. Reading what
+  Spotify/a browser is playing needs WinRT `Windows.Media.Control`; pywin32
+  cannot, and Qt has no system-media-session reader. Media-key injection
+  (pywin32, zero deps) was offered and declined in favour of full metadata.
+  Added: the `winrt-*` packages (not `winsdk`, which has no Python 3.13
+  wheels). All WinRT use is isolated in `media.py` and degrades to "no media"
+  if the import fails, so the tile still runs without it.
+
 ## Constraints
 
-- No new runtime dependencies beyond PySide6/psutil/pywin32.
+- No new runtime dependencies beyond PySide6/psutil/pywin32 -- **except the
+  `winrt-*` packages for media now-playing** (see the decision above).
 - Nothing merges to `master` unattended.
 - Windows first: cp1252 consoles, so any hook stdout is reconfigured to UTF-8
   with `errors="replace"` in code (`python -I` ignores `PYTHONIOENCODING`).

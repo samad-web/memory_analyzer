@@ -65,6 +65,10 @@ REPORTER_FILES = (
 # The tile and the dashboard on top of that.
 FULL_EXTRA_FILES = (
     "widget.py",
+    # The Dynamic Island view: layout/identity maths and the WinRT now-playing
+    # watcher. widget.py imports both, so the bundle-closure test requires them.
+    "island.py",
+    "media.py",
     "dashboard.py",
     "charts.py",
     "viz.py",
