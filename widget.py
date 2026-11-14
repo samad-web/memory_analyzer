@@ -3380,15 +3380,19 @@ def set_startup(enable: bool) -> bool:
     if not enable:
         return _schtasks(["/Delete", "/TN", TASK_NAME, "/F"]).returncode == 0
 
-    # pythonw.exe runs without a console window.
-    pythonw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
-    runner = pythonw if os.path.exists(pythonw) else sys.executable
-    command = f'"{runner}" "{os.path.join(HERE, "widget.py")}"'
-    created = _schtasks(
-        ["/Create", "/TN", TASK_NAME, "/TR", command,
-         "/SC", "ONLOGON", "/RL", "HIGHEST", "/F"]
-    )
-    return created.returncode == 0
+    if getattr(sys, "frozen", False):
+        command = f'"{sys.executable}"'   # the packaged Sirahlyzer.exe itself
+    else:
+        # pythonw.exe runs without a console window.
+        pythonw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+        runner = pythonw if os.path.exists(pythonw) else sys.executable
+        command = f'"{runner}" "{os.path.join(HERE, "widget.py")}"'
+    base = ["/Create", "/TN", TASK_NAME, "/TR", command, "/SC", "ONLOGON", "/F"]
+    # Elevated gives full sensor access, but a non-admin user can't create
+    # such a task -- fall back to a normal one rather than failing silently.
+    if _schtasks(base + ["/RL", "HIGHEST"]).returncode == 0:
+        return True
+    return _schtasks(base).returncode == 0
 
 
 def already_running() -> bool:
