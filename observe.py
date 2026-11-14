@@ -121,8 +121,8 @@ def _clip(text: str, limit: int) -> str:
 # asking for something, so none of them should name a turn.
 _MACHINE_PROMPT = re.compile(
     r"^\s*(<task-notification|<system-reminder|<command-name|<local-command|"
-    r"<pasted_content|\[Artifact comment sent to Claude\]|"
-    r"<user-prompt-submit-hook)",
+    r"<pasted_content|<agent-message|\[Artifact comment sent to Claude\]|"
+    r"\[Subagent hand-back\]|<user-prompt-submit-hook)",
     re.I,
 )
 

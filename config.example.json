@@ -21,5 +21,11 @@
   "web_bind": "127.0.0.1",
   "web_token": "",
   "sync_enabled": true,
-  "sync_seconds": 60
+  "sync_seconds": 60,
+  "sirahos": {
+    "api_url": "https://api.os.sirahagents.com",
+    "last_signed_in_as": "",
+    "folder_project_map": {},
+    "share_prompts": true
+  }
 }

@@ -69,7 +69,10 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import events
+import hooks  # noqa: F401 - bundled so `SirahlyzerBridge.exe hooks-install` works
 import identity
+import notify  # noqa: F401 - bundled so `SirahlyzerBridge.exe notify <action>` works
+import observe
 import sirahos
 import stats
 import store
@@ -230,7 +233,9 @@ def group_by_day_and_project(rows: list[dict]) -> dict:
                 bucket["first_started"] = float(start)
         if ended > bucket["last_ended"]:
             bucket["last_ended"] = ended
-        prompt = str(row.get("prompt") or "").strip()
+        # Keep only the human's own words; drop machine turns (task-notification,
+        # pasted content, subagent hand-backs) so the WorkLog note is readable.
+        prompt = observe.clean_prompt(row.get("prompt") or "")
         if prompt:
             bucket["prompts"].append(prompt)
         model = str(row.get("model") or "")
@@ -424,7 +429,21 @@ def main(argv: list[str]) -> int:
             "mapped_folders": sorted((cfg.get("folder_project_map") or {}).keys()),
         }, indent=2))
         return 0
-    print("usage: python bridge.py [push|status]")
+    if cmd == "notify":
+        # Claude Code hook dispatch: `SirahlyzerBridge.exe notify <action>`.
+        # notify.main reads action from its own argv[1], so skip our "notify" word.
+        return notify.main([sys.argv[0]] + sys.argv[2:])
+    if cmd == "hooks-install":
+        # Wire the six Claude Code hooks to point at this very exe. Uses
+        # sys.executable so the frozen build points at the exe path, not python.
+        report = hooks.install(scope="user", exe=sys.executable)
+        print(json.dumps(report, indent=2))
+        return 0
+    if cmd == "hooks-uninstall":
+        report = hooks.uninstall(scope="user")
+        print(json.dumps(report, indent=2))
+        return 0
+    print("usage: SirahlyzerBridge.exe [push|status|notify <action>|hooks-install|hooks-uninstall]")
     return 2
 
 

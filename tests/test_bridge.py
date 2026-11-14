@@ -108,6 +108,22 @@ class AggregationTest(unittest.TestCase):
         self.assertIn(("2026-11-03", "voicetranscriber"), groups)
         self.assertIn(("2026-11-03", "VoiceTranscriber"), groups)
 
+    def test_machine_prompts_are_dropped_from_notes(self):
+        """Human text survives; task-notification / pasted / subagent noise is dropped."""
+        rows = [
+            _turn(ended_at=_ts(2026, 11, 3, 10, 0), project="auratel",
+                  prompt="ship the bridge fix"),
+            _turn(ended_at=_ts(2026, 11, 3, 11, 0), project="auratel",
+                  prompt="<task-notification> <task-id>abc</task-id> ..."),
+            _turn(ended_at=_ts(2026, 11, 3, 12, 0), project="auratel",
+                  prompt="<pasted_content id=\"x\"> PS C:\\path> cmd ..."),
+            _turn(ended_at=_ts(2026, 11, 3, 13, 0), project="auratel",
+                  prompt="<agent-message from=\"a1\"> [Subagent hand-back] ..."),
+        ]
+        groups = self.bridge.group_by_day_and_project(rows)
+        prompts = groups[("2026-11-03", "auratel")]["prompts"]
+        self.assertEqual(prompts, ["ship the bridge fix"])
+
     def test_turns_with_no_duration_still_count(self):
         rows = [
             _turn(ended_at=_ts(2026, 11, 3, 10, 0), duration_s=None,
