@@ -103,7 +103,8 @@ def _is_ours(group: dict, root: str) -> bool:
     needle = os.path.join(root, "notify.py").replace("\\", "/").lower()
     for hook in group.get("hooks", []) if isinstance(group, dict) else []:
         command = str(hook.get("command", "")).replace("\\", "/").lower()
-        if needle in command or "notify.py" in command:
+        # The frozen build's hooks call SirahlyzerBridge.exe, not notify.py.
+        if needle in command or "notify.py" in command or "sirahlyzerbridge.exe" in command:
             return True
     return False
 

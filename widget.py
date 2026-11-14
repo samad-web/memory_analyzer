@@ -225,7 +225,8 @@ def clamp_scale(value) -> float:
 def load_config() -> dict:
     cfg = dict(DEFAULTS)
     try:
-        with open(CONFIG_PATH, encoding="utf-8") as fh:
+        # utf-8-sig: a config hand-edited in PowerShell/Notepad may carry a BOM.
+        with open(CONFIG_PATH, encoding="utf-8-sig") as fh:
             stored = json.load(fh)
         if isinstance(stored, dict):
             cfg.update({k: v for k, v in stored.items() if k in DEFAULTS})
