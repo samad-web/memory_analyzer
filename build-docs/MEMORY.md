@@ -97,6 +97,17 @@ updated whenever a decision is made.
   Python on teammates' laptops) and registers the push task. The state dir
   stays `%LOCALAPPDATA%\SystemMonitorWidget` so upgrades keep their data.
   Island is on by default; an old `config.json` beside the exe overrides it.
+- **Web dashboard is on by default (2026-11-14).** It is the only SirahOS
+  sign-in path, so off broke first-run setup. Bound to 127.0.0.1 only.
+  config.json is written at first launch; startup and bind results go to
+  `%LOCALAPPDATA%\SystemMonitorWidget\sirahlyzer.log`.
+- **Frozen bundle data comes from `sys._MEIPASS`, user config from beside
+  the exe** (`paths.BUNDLE_DIR` vs `paths.ROOT`). Resolving web/ beside the
+  exe made every dashboard route 404 in 1.0.1-1.0.4.
+- **State dir stays `SystemMonitorWidget`, deliberately; window title is
+  Sirahlyzer.** Renaming the dir would split a running install's history
+  (hooks, task and tile all write there, often while files are open). The
+  README's "What this program is" section names it for auditors.
 
 - **The no-new-dependency constraint was reversed for media now-playing
   (2026-11-14), by explicit user decision.** The Dynamic Island shows the

@@ -420,8 +420,21 @@ def main(argv: list[str]) -> int:
         print(json.dumps(r, indent=2, default=str))
         return 0 if r["ok"] else 1
     if cmd == "status":
+        import paths
         cfg = _load_config()
+        try:
+            with open(paths.CONFIG_PATH, encoding="utf-8-sig") as fh:
+                raw = json.load(fh)
+        except (OSError, ValueError):
+            raw = {}
         print(json.dumps({
+            "config_path": paths.CONFIG_PATH,
+            "config_exists": os.path.exists(paths.CONFIG_PATH),
+            "state_dir": identity.STATE_DIR,
+            # None = not in config.json yet; the app's built-in default applies.
+            "web_enabled": raw.get("web_enabled"),
+            "web_port": raw.get("web_port"),
+            "web_bind": raw.get("web_bind"),
             "configured": bool(cfg.get("api_url")),
             "api_url": cfg.get("api_url"),
             "signed_in_as": cfg.get("last_signed_in_as"),

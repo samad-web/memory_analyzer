@@ -31,6 +31,9 @@ def install_root() -> str:
 
 
 ROOT = install_root()
-CONFIG_PATH = os.path.join(ROOT, "config.json")
-SCHEMA_PATH = os.path.join(ROOT, "schema.sql")
-WEB_DIR = os.path.join(ROOT, "web")
+# Bundled read-only data. PyInstaller 6 lays it out in _internal/
+# (sys._MEIPASS), not beside the exe; from source it is the repo root.
+BUNDLE_DIR = getattr(sys, "_MEIPASS", ROOT)
+CONFIG_PATH = os.path.join(ROOT, "config.json")   # user-writable: beside the exe
+SCHEMA_PATH = os.path.join(BUNDLE_DIR, "schema.sql")
+WEB_DIR = os.path.join(BUNDLE_DIR, "web")

@@ -8,6 +8,34 @@ Extract to a NEW, EMPTY folder (for example C:\Sirahlyzer). Do not extract
 over an older Sirahlyzer / Memory Analyzer folder -- see "Updating" below.
 
 
+What this program is, and what it touches
+-----------------------------------------
+Sirahlyzer is Sirah Digital's internal build of an app that was developed
+under the working name "System Monitor Widget". Two internal names from
+that period remain ON PURPOSE, so you can recognise them when auditing:
+
+  %LOCALAPPDATA%\SystemMonitorWidget\   data folder: event log, SirahOS
+                                        sign-in (encrypted for your Windows
+                                        user), and  sirahlyzer.log
+  "SystemMonitorWidget.singleton"       the lock that stops two copies running
+
+They are kept because the Claude Code hooks, the auto-push task and existing
+installs all read and write that folder; renaming it would split a running
+install's history in two. Everything else is named Sirahlyzer.
+
+Files it creates:
+  config.json (beside Sirahlyzer.exe)   settings; written on first launch
+  %LOCALAPPDATA%\SystemMonitorWidget\   data (see above)
+  %USERPROFILE%\.claude\settings.json   six hook entries (setup.cmd adds them;
+                                        a timestamped backup is kept)
+  Scheduled task "SirahOSBridge"        runs SirahlyzerBridge.exe push
+Network: the dashboard listens on 127.0.0.1 only (not reachable from other
+machines). The app's outbound traffic is HTTPS to api.os.sirahagents.com,
+plus team reporting only if an admin enrolls this laptop (team.json). The
+dashboard page itself loads fonts from fonts.googleapis.com. Your SirahOS
+password is sent once at sign-in and never stored.
+
+
 First-time setup
 ----------------
 
@@ -22,8 +50,12 @@ First-time setup
    "More info" -> "Run anyway" (one time).
 
 3. Sign in to SirahOS
-   Right-click the island -> "Open dashboard" (or http://127.0.0.1:8765)
+   Right-click the island -> "Open web dashboard". Your browser opens the
+   dashboard (normally http://127.0.0.1:8765; if that port is busy it uses
+   8766-8770 -- the menu item always opens the right one).
    -> SirahOS tab -> sign in with your SirahOS email + password.
+   If it can't start, a message says why. Details: sirahlyzer.log in
+   %LOCALAPPDATA%\SystemMonitorWidget\
 
 4. Map folder -> project (optional)
    On the SirahOS tab, map each repo folder to its SirahOS project.
@@ -48,8 +80,12 @@ Updating to a new version (no reinstall)
 4. Start Sirahlyzer.exe.
 
 Sign-in, event log and the task survive -- they live in
-%LOCALAPPDATA%\SystemMonitorWidget\  (old internal name, kept on purpose).
+%LOCALAPPDATA%\SystemMonitorWidget\ (see "What this program is" above).
 Current version: see VERSION.txt.
+
+Troubleshooting:  SirahlyzerBridge.exe status | more
+prints the config path, whether the dashboard is enabled, its port, and
+your SirahOS sign-in state.
 
 
 Uninstall

@@ -17,6 +17,7 @@ import json
 import math
 import os
 import random
+import logging
 import subprocess
 import sys
 import time
@@ -40,6 +41,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
     QMenu,
+    QMessageBox,
     QPushButton,
     QSystemTrayIcon,
     QTextBrowser,
@@ -70,6 +72,8 @@ STATE_DIR = os.path.join(
     os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "SystemMonitorWidget"
 )
 SUMMON_PATH = os.path.join(STATE_DIR, "summon")
+LOG_PATH = os.path.join(STATE_DIR, "sirahlyzer.log")
+log = logging.getLogger("sirahlyzer")
 
 # Samples kept per metric for the sparklines.
 HISTORY = 48
@@ -190,11 +194,11 @@ DEFAULTS = {
     "auto_trim": True,
     "auto_trim_pct": 90,
     "auto_trim_gb": 15.0,
-    # The web dashboard, served from this process. Off by default: it is a
-    # second way into the same data, and a port nobody asked for should not be
-    # listening. "web_bind" wider than localhost forces a token (see
-    # webserver.py).
-    "web_enabled": False,
+    # The web dashboard, served from this process. On by default: it is where
+    # a teammate signs in to SirahOS, so off would break first-run setup. It
+    # binds to 127.0.0.1 only; "web_bind" wider than localhost forces a token
+    # (see webserver.py).
+    "web_enabled": True,
     "web_port": 8765,
     "web_bind": "127.0.0.1",
     "web_token": "",
@@ -346,6 +350,13 @@ class MonitorWidget(QWidget):
     def __init__(self) -> None:
         super().__init__()
         self.cfg = load_config()
+        log.info("config %s (exists=%s) web_enabled=%s bind=%s port=%s island=%s",
+                 CONFIG_PATH, os.path.exists(CONFIG_PATH), self.cfg.get("web_enabled"),
+                 self.cfg.get("web_bind"), self.cfg.get("web_port"), self.cfg.get("island"))
+        if not os.path.exists(CONFIG_PATH):
+            # Written now, not on first save, so it is inspectable from launch.
+            save_config(self.cfg)
+        self._web_error = ""
         # With no system tray there is nothing to carry the menu while
         # click-through is on, which would leave the widget uncontrollable.
         # Fall back to a right-clickable widget in that case.
@@ -403,7 +414,7 @@ class MonitorWidget(QWidget):
         self.scale = clamp_scale(self.cfg.get("scale", 1.0))
         self._logical_h = BASE_HEIGHT
 
-        self.setWindowTitle("System Monitor")
+        self.setWindowTitle("Sirahlyzer")
         # Tool keeps it out of the taskbar and Alt-Tab, FramelessWindowHint
         # removes the title bar, and WA_TranslucentBackground lets the rounded
         # corners show the desktop through.
@@ -2056,6 +2067,8 @@ class MonitorWidget(QWidget):
             url = self._web.start()
         except Exception as exc:  # noqa: BLE001
             self._web = None
+            self._web_error = str(exc)
+            log.exception("web dashboard failed to start")
             self._show_flash("web failed")
             self.tray.showMessage(
                 "Web dashboard could not start", str(exc)[:220],
@@ -2063,7 +2076,14 @@ class MonitorWidget(QWidget):
             )
             return ""
         if not url:
+            self._web_error = "ports %s-%s are all in use" % (
+                self._web.port, self._web.port + 5)
+            log.error("web dashboard: %s", self._web_error)
+            self._web = None
             self._show_flash("no free port")
+            return ""
+        log.info("web dashboard listening at %s", url)
+        self._web_error = ""
         return url
 
     def _set_web_enabled(self, checked: bool) -> None:
@@ -2082,6 +2102,12 @@ class MonitorWidget(QWidget):
     def _open_web_dashboard(self) -> None:
         url = self._start_web()
         if not url:
+            QMessageBox.warning(
+                self, "Sirahlyzer",
+                "The web dashboard could not start on %s:%s.\n\n%s\n\nDetails: %s" % (
+                    self.cfg.get("web_bind", "127.0.0.1"), self.cfg.get("web_port", 8765),
+                    self._web_error or "unknown error", LOG_PATH),
+            )
             return
         self.cfg["web_enabled"] = True
         save_config(self.cfg)
@@ -3396,6 +3422,17 @@ def main() -> int:
         request_summon()
         return 0
 
+    # The GUI has no console, so this file is the only trace of startup.
+    os.makedirs(STATE_DIR, exist_ok=True)
+    from logging.handlers import RotatingFileHandler
+
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s",
+        handlers=[RotatingFileHandler(LOG_PATH, maxBytes=512_000, backupCount=1,
+                                      encoding="utf-8")],
+    )
+    log.info("Sirahlyzer starting (frozen=%s) exe=%s",
+             getattr(sys, "frozen", False), sys.executable)
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(True)
     # Held in a local: dropping the last reference would let Python collect the
