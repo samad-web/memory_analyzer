@@ -16,6 +16,7 @@ import itertools
 import json
 import math
 import os
+import random
 import subprocess
 import sys
 import time
@@ -104,7 +105,7 @@ SPIN_PERIOD = 1.1           # seconds per rotation of a working session's ring
 PULSE_PERIOD = 2.4          # seconds for one full breathe of a waiting banner
 FLASH_SECONDS = 2.8         # how long the ring glows after an alert arrives
 FLASH_PERIOD = 0.9          # seconds per cycle of the ring inside that window
-ANIM_INTERVAL_MS = 50       # 20fps, and only while something is animating
+ANIM_INTERVAL_MS = 16       # 60fps, and only while something is animating
 # A session already shown as blocked should not re-pop the tile for every
 # follow-up notification in the same wait; permission prompts can arrive in a
 # run. A genuinely new state still announces itself immediately.
@@ -179,6 +180,11 @@ DEFAULTS = {
     "island_locked": True,
     "island_cx": None,
     "island_y": None,
+    # Water-break reminder: every N minutes, block every screen for a few
+    # seconds, then ask whether they drank. On by default (see MEMORY).
+    "hydration_enabled": True,
+    "hydration_minutes": 75,
+    "hydration_block_seconds": 15,
     # Trim automatically once memory passes either limit (percent of total, or
     # gigabytes in use) -- whichever is reached first.
     "auto_trim": True,
@@ -378,6 +384,7 @@ class MonitorWidget(QWidget):
         self._art_pixmap: tuple | None = None  # (id(bytes), QPixmap) cache
         self._logo_cache: dict[str, QPixmap | None] = {}  # project root -> logo
         self._island_clones: list = []  # one mirror window per extra screen
+        self._blocker = None             # the active water-break overlay, if any
         # Declared before the sampler starts, so a sample arriving early finds
         # the attribute rather than an AttributeError.
         self._syncer: SyncThread | None = None
@@ -461,6 +468,42 @@ class MonitorWidget(QWidget):
             self._start_media()
             self._island_place_center()
             self._build_island_clones()
+
+        # Water-break reminder.
+        self._hydration_timer = QTimer(self)
+        self._hydration_timer.timeout.connect(self._hydration_due)
+        self._start_hydration()
+
+    # -- water break ---------------------------------------------------------
+
+    def _start_hydration(self) -> None:
+        self._hydration_timer.stop()
+        if not self.cfg.get("hydration_enabled", True):
+            return
+        try:
+            minutes = max(1, int(self.cfg.get("hydration_minutes", 75)))
+        except (TypeError, ValueError):
+            minutes = 75
+        self._hydration_timer.start(minutes * 60 * 1000)
+
+    def _hydration_due(self) -> None:
+        if self._blocker is not None:   # one at a time
+            return
+        try:
+            secs = max(3, int(self.cfg.get("hydration_block_seconds", 15)))
+        except (TypeError, ValueError):
+            secs = 15
+        self._blocker = HydrationBlocker(secs)
+        self._blocker.finished.connect(self._on_hydration_done)
+        self._blocker.begin()
+
+    def _on_hydration_done(self) -> None:
+        self._blocker = None
+
+    def _set_hydration(self, checked: bool) -> None:
+        self.cfg["hydration_enabled"] = bool(checked)
+        save_config(self.cfg)
+        self._start_hydration()
 
     # -- size ----------------------------------------------------------------
 
@@ -972,11 +1015,26 @@ class MonitorWidget(QWidget):
         p.setRenderHint(QPainter.SmoothPixmapTransform)   # crisp scaled logos
         p.translate(self._island_card_left(), 0)   # keep the card centred
 
-        alpha = int(240 + 11 * t)      # a touch more opaque fully open
+        alpha = int(236 + 15 * t)      # a touch more opaque fully open
         card = self._island_card_path(w, h, self.ISLAND_FLARE)
-        p.fillPath(card, QColor(0, 0, 0, alpha))
+        # Liquid glass: a cool vertical gradient body, a bright sheen along the
+        # top edge, and a light rim -- so it reads as translucent glass. (A true
+        # backdrop blur of the desktop is not available to a Qt window.)
+        body = QLinearGradient(0, 0, 0, h)
+        body.setColorAt(0.0, QColor(46, 52, 70, alpha))
+        body.setColorAt(0.5, QColor(16, 18, 27, alpha))
+        body.setColorAt(1.0, QColor(8, 9, 14, alpha))
+        p.fillPath(card, body)
+        p.save()
+        p.setClipPath(card)
+        sheen = QLinearGradient(0, 0, 0, 26)
+        sheen.setColorAt(0.0, QColor(255, 255, 255, 70))
+        sheen.setColorAt(1.0, QColor(255, 255, 255, 0))
+        f = self.ISLAND_FLARE
+        p.fillRect(QRectF(-f, 0, w + 2 * f, 26), sheen)
+        p.restore()
         p.setBrush(Qt.NoBrush)
-        p.setPen(QPen(QColor(255, 255, 255, 28), 1))
+        p.setPen(QPen(QColor(255, 255, 255, 46), 1))
         p.drawPath(card)
 
         # Content is clipped to the card, so a half-dropped row is cut by the
@@ -2419,6 +2477,19 @@ class MonitorWidget(QWidget):
             )
             isle_lock.triggered.connect(self._set_island_locked)
 
+        water = menu.addAction("Water reminder")
+        water.setCheckable(True)
+        water.setChecked(bool(self.cfg.get("hydration_enabled", True)))
+        water.setToolTip(
+            f"Block every screen for "
+            f"{int(self.cfg.get('hydration_block_seconds', 15))}s every "
+            f"{int(self.cfg.get('hydration_minutes', 75))} min to drink water"
+        )
+        water.triggered.connect(self._set_hydration)
+        water_now = menu.addAction("   Take a water break now")
+        water_now.setToolTip("Preview the break overlay")
+        water_now.triggered.connect(self._hydration_due)
+
         hidden = menu.addAction("Hide from screenshots")
         hidden.setCheckable(True)
         hidden.setChecked(bool(self.cfg["hide_from_capture"]))
@@ -2589,6 +2660,7 @@ class MonitorWidget(QWidget):
             "show_stats": (bool, self._set_show_stats),
             "island": (bool, self._set_island),
             "island_locked": (bool, self._set_island_locked),
+            "hydration_enabled": (bool, self._set_hydration),
             "locked": (bool, self._toggle_lock),
             "auto_trim": (bool, self._set_auto_trim),
             "auto_trim_pct": (int, self._set_auto_trim_pct),
@@ -2651,6 +2723,9 @@ class MonitorWidget(QWidget):
             self._web = None
         self._stop_media()
         self._teardown_island_clones()
+        if self._blocker is not None:
+            self._blocker.close()
+            self._blocker = None
         if self._syncer is not None:
             # One last push, so the final turns of a session are not stranded
             # on disk until the next launch.
@@ -2694,7 +2769,7 @@ class IslandClone(QWidget):
         )
         self._timer = QTimer(self)
         self._timer.timeout.connect(self.sync)
-        self._timer.start(50)   # 20fps: enough to mirror the spinner/drop
+        self._timer.start(16)   # 60fps: mirror the spinner/drop smoothly
         self.sync()
 
     def showEvent(self, event) -> None:  # noqa: N802
@@ -2733,6 +2808,195 @@ class IslandClone(QWidget):
             self._to_logical(event.position().toPoint())
         ):
             event.accept()
+
+
+class DodgeButton(QPushButton):
+    """A button that will not be clicked: it hops away from the cursor, so the
+    only way past the water prompt is to say yes."""
+
+    def __init__(self, text: str, bounds, parent=None) -> None:
+        super().__init__(text, parent)
+        self._bounds = bounds   # callable -> QRect it may roam within
+
+    def _hop(self) -> None:
+        r = self._bounds()
+        x = random.randint(r.left(), max(r.left(), r.right() - self.width()))
+        y = random.randint(r.top(), max(r.top(), r.bottom() - self.height()))
+        self.move(x, y)
+
+    def enterEvent(self, event) -> None:  # noqa: N802
+        self._hop()
+        super().enterEvent(event)
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        self._hop()           # even a fast click lands on empty space
+        event.ignore()
+
+
+class HydrationBlocker(QWidget):
+    """A full-screen water break. It covers every screen and swallows input for
+    a few seconds (no escape), then asks whether they drank: the No button runs
+    away, and an instant Yes is double-checked, before the screen is released.
+    """
+
+    finished = Signal()
+
+    def __init__(self, block_seconds: int = 15) -> None:
+        super().__init__()
+        self._left = int(block_seconds)
+        self._phase = "block"            # block -> ask -> confirm
+        self._ask_at = 0.0
+        self.yes_btn: QPushButton | None = None
+        self.no_btn: DodgeButton | None = None
+        self.setWindowFlags(
+            Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
+        )
+        self.setCursor(Qt.ArrowCursor)
+        self._tick_timer = QTimer(self)
+        self._tick_timer.timeout.connect(self._tick)
+
+    def begin(self) -> None:
+        # Span the whole virtual desktop so no screen is usable.
+        self.setGeometry(QApplication.primaryScreen().virtualGeometry())
+        self.show()
+        self.raise_()
+        self.activateWindow()
+        self.grabKeyboard()               # keystrokes cannot reach apps behind
+        self._tick_timer.start(1000)
+        self.update()
+
+    def _central_bounds(self) -> QRect:
+        """Where the buttons (and the dodging No) may sit -- centre of the
+        primary screen, in this window's coordinates."""
+        area = QApplication.primaryScreen().geometry()
+        g = self.geometry()
+        cx = area.center().x() - g.x()
+        cy = area.center().y() - g.y()
+        return QRect(cx - 320, cy - 40, 640, 200)
+
+    def _tick(self) -> None:
+        self._left -= 1
+        if self._left <= 0:
+            self._tick_timer.stop()
+            self._to_ask()
+        self.update()
+
+    def _to_ask(self) -> None:
+        self._phase = "ask"
+        self._ask_at = time.monotonic()
+        style = (
+            "QPushButton{background:rgba(255,255,255,0.14);color:#eaf2ff;"
+            "border:1px solid rgba(255,255,255,0.35);border-radius:14px;"
+            "padding:12px 34px;font-size:17px;font-weight:600;}"
+            "QPushButton:hover{background:rgba(255,255,255,0.26);}"
+        )
+        self.yes_btn = QPushButton("Yes, I drank", self)
+        self.yes_btn.setStyleSheet(style)
+        self.yes_btn.clicked.connect(self._on_yes)
+        self.no_btn = DodgeButton("No", self._central_bounds, self)
+        self.no_btn.setStyleSheet(style)
+        for b in (self.yes_btn, self.no_btn):
+            b.setCursor(Qt.PointingHandCursor)
+            b.adjustSize()
+        c = self._central_bounds().center()
+        self.yes_btn.move(c.x() - self.yes_btn.width() - 18, c.y())
+        self.no_btn.move(c.x() + 18, c.y())
+        self.yes_btn.show()
+        self.no_btn.show()
+        self.update()
+
+    def _on_yes(self) -> None:
+        if self._phase == "ask" and time.monotonic() - self._ask_at < 2.0:
+            # Too quick to have actually drunk -- make them confirm.
+            self._phase = "confirm"
+            if self.no_btn:
+                self.no_btn.hide()
+            self.yes_btn.setText("Yes, I'm sure")
+            self.yes_btn.adjustSize()
+            c = self._central_bounds().center()
+            self.yes_btn.move(c.x() - self.yes_btn.width() // 2, c.y())
+            self.update()
+            return
+        self._resume()
+
+    def _resume(self) -> None:
+        try:
+            self.releaseKeyboard()
+        except Exception:  # noqa: BLE001
+            pass
+        self.finished.emit()
+        self.close()
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802 - swallow all keys
+        event.accept()
+
+    def closeEvent(self, event) -> None:  # noqa: N802
+        try:
+            self.releaseKeyboard()
+        except Exception:  # noqa: BLE001
+            pass
+        super().closeEvent(event)
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        w, h = self.width(), self.height()
+        # Liquid-glass water wash: deep blue to teal, nearly opaque so the work
+        # behind cannot be read -- that is the point of the break.
+        g = QLinearGradient(0, 0, 0, h)
+        g.setColorAt(0.0, QColor(10, 26, 48, 236))
+        g.setColorAt(0.55, QColor(12, 40, 64, 240))
+        g.setColorAt(1.0, QColor(8, 22, 40, 244))
+        p.fillRect(self.rect(), g)
+
+        cx = self._central_bounds().center().x()
+        top = QApplication.primaryScreen().geometry().top() - self.y()
+        base = top + QApplication.primaryScreen().geometry().height() // 2
+
+        self._draw_drop(p, cx, base - 120, 46)
+        p.setPen(QColor(230, 242, 255))
+        p.setFont(QFont("Segoe UI", 40, QFont.Weight.Bold))
+        self._centre(p, cx, base - 20, "Time to drink water")
+
+        if self._phase == "block":
+            p.setFont(QFont("Segoe UI", 20))
+            p.setPen(QColor(170, 200, 230))
+            self._centre(p, cx, base + 10,
+                         f"Step away for {self._left}s…")
+        elif self._phase == "ask":
+            p.setFont(QFont("Segoe UI", 22, QFont.Weight.DemiBold))
+            p.setPen(QColor(220, 235, 255))
+            self._centre(p, cx, self._central_bounds().top() - 24,
+                         "Did you drink water?")
+        else:  # confirm
+            p.setFont(QFont("Segoe UI", 22, QFont.Weight.DemiBold))
+            p.setPen(QColor(220, 235, 255))
+            self._centre(p, cx, self._central_bounds().top() - 24,
+                         "Are you sure?")
+        p.end()
+
+    @staticmethod
+    def _centre(p: QPainter, cx: int, baseline: int, text: str) -> None:
+        wdt = QFontMetrics(p.font()).horizontalAdvance(text)
+        p.drawText(int(cx - wdt / 2), int(baseline), text)
+
+    @staticmethod
+    def _draw_drop(p: QPainter, cx: float, cy: float, s: float) -> None:
+        """A glassy water droplet, drawn rather than relying on an emoji glyph."""
+        drop = QPainterPath()
+        drop.moveTo(cx, cy - s)
+        drop.cubicTo(cx + s * 0.95, cy - s * 0.1, cx + s * 0.75, cy + s * 0.75,
+                     cx, cy + s)
+        drop.cubicTo(cx - s * 0.75, cy + s * 0.75, cx - s * 0.95, cy - s * 0.1,
+                     cx, cy - s)
+        drop.closeSubpath()
+        grad = QLinearGradient(cx, cy - s, cx, cy + s)
+        grad.setColorAt(0.0, QColor(120, 200, 255))
+        grad.setColorAt(1.0, QColor(40, 120, 210))
+        p.setPen(Qt.NoPen)
+        p.fillPath(drop, grad)
+        p.setBrush(QColor(255, 255, 255, 150))      # specular highlight
+        p.drawEllipse(QRectF(cx - s * 0.35, cy - s * 0.1, s * 0.3, s * 0.45))
 
 
 class ScorecardWindow(QWidget):

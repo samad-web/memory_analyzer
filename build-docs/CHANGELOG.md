@@ -159,3 +159,22 @@ higher opacity. Island is top-centre per screen, not draggable.
   convex rounded bottoms (island.card_path).
 - Logos: SmoothPixmapTransform + wider logo_path search (nested asset dirs), so
   Expo/Vite/Next projects' icons show in the rings.
+
+## feat(hydration-break): water-break blocker
+
+Every ~75 min a full-desktop liquid-glass overlay blocks both screens for 15s
+(no escape, keyboard grabbed), then asks "did you drink water?" -- the No button
+dodges the cursor, an instant Yes is double-checked ("are you sure?"), then the
+screen is released. On by default; menu toggle + "Take a water break now".
+HydrationBlocker + DodgeButton in widget.py; no new module or dependency.
+
+## fix(dynamic-island): smoother + glassier + logos found more often
+
+- 60fps animation (was 20) so the working ring's rotation flows; clone mirrors
+  at 60fps too.
+- Liquid-glass island: cool gradient body, top sheen, light rim.
+- Top corners flare OUT past the body (water-drop clinging to the ceiling),
+  not the earlier inward pinch.
+- logo_path now also does a bounded shallow walk (<=2 levels, skipping
+  node_modules/build/etc.), so projects that keep their icon off the beaten
+  path still show a logo in the ring.

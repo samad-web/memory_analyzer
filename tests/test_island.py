@@ -97,6 +97,27 @@ class LogoPathTest(unittest.TestCase):
             self.assertIsNone(island.logo_path(root))
         self.assertIsNone(island.logo_path(""))
 
+    def test_shallow_walk_finds_a_nested_icon(self):
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as root:
+            nested = os.path.join(root, "app", "branding")
+            os.makedirs(nested)
+            logo = os.path.join(nested, "app-icon.png")
+            open(logo, "wb").close()
+            self.assertEqual(island.logo_path(root), logo)
+
+    def test_walk_skips_dependency_dirs(self):
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as root:
+            buried = os.path.join(root, "node_modules", "pkg")
+            os.makedirs(buried)
+            open(os.path.join(buried, "logo.png"), "wb").close()
+            self.assertIsNone(island.logo_path(root))
+
 
 class NowPlayingTest(unittest.TestCase):
     def test_ident_excludes_art(self):

@@ -99,6 +99,15 @@ updated whenever a decision is made.
   wheels). All WinRT use is isolated in `media.py` and degrades to "no media"
   if the import fails, so the tile still runs without it.
 
+- **The water-break blocker is on by default with no escape during the
+  countdown (2026-11-14, user decision).** It ships enabled for the whole
+  team; the 15s block cannot be dismissed by any key or click until it ends,
+  then it asks whether they drank (No dodges, an instant Yes is double-checked).
+  Implemented as a top-most full-desktop overlay that grabs the keyboard, NOT
+  `BlockInput`/low-level hooks -- those need elevation and would strand the user
+  if the process hung. Toggle + "take a break now" in the menu. See
+  `features/hydration-break.md`.
+
 ## Constraints
 
 - No new runtime dependencies beyond PySide6/psutil/pywin32 -- **except the

@@ -136,12 +136,20 @@ _LOGO_DIRS = ("", "assets", "assets/images", "src/assets", "public",
               "app", "build-docs", "docs")
 
 
-def logo_path(project_root: str) -> str | None:
-    """A project's own logo/icon file, if one sits in a usual place, else None.
+# Directories never worth walking into when hunting for an icon.
+_LOGO_SKIP = {"node_modules", ".git", ".hg", ".svn", "dist", "build", "out",
+              "android", "ios", ".next", ".expo", "__pycache__", ".venv",
+              "venv", "target", "vendor"}
+_LOGO_PAT = re.compile(r"(logo|icon|favicon|app-?icon)\.(png|jpg|jpeg|ico)$", re.I)
 
-    Searched shallowly (a handful of names in a handful of conventional
-    folders) -- the ring falls back to the initials glyph when nothing is
-    found, so a miss is cheap and never wrong.
+
+def logo_path(project_root: str) -> str | None:
+    """A project's own logo/icon file, if one can be found, else None.
+
+    First the conventional places (fast, exact). Then a bounded shallow walk
+    (<=2 levels, skipping heavy build/dependency folders) so a project that
+    keeps its icon somewhere less standard is still matched. The ring falls
+    back to the initials glyph on a miss, so this is best-effort, never wrong.
     """
     if not project_root:
         return None
@@ -153,6 +161,20 @@ def logo_path(project_root: str) -> str | None:
                     return candidate
             except OSError:
                 continue
+    # Shallow walk fallback.
+    base_depth = project_root.rstrip("\\/").count(os.sep)
+    try:
+        for root, dirs, files in os.walk(project_root):
+            if root.count(os.sep) - base_depth >= 2:
+                dirs[:] = []          # scan this level's files, but go no deeper
+            else:
+                dirs[:] = [d for d in dirs if d.lower() not in _LOGO_SKIP
+                           and not d.startswith(".")]
+            for name in files:
+                if _LOGO_PAT.search(name):
+                    return os.path.join(root, name)
+    except OSError:
+        pass
     return None
 
 

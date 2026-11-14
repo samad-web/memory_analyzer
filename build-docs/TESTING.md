@@ -122,3 +122,13 @@ CPU/RAM/GPU row. Control hit-tests checked programmatically: quit-x calls
 close(), resize grip hits only the corner, unlocked island honours saved
 position. Verified live on the dual-monitor (mixed-DPI) setup: island drops
 from the top on hover, logos render, both screens mirror.
+
+## feat(hydration-break) + island polish
+
+test_island.py now 17 (adds nested-icon walk + node_modules skip). Hydration
+flow checked headlessly: block->ask->confirm transitions, the No button's hop
+stays inside its bounds, an instant Yes routes to "Are you sure?" then resumes
+(finished emitted). Offscreen renders confirmed the drawn droplet, the blue
+glass wash, the glassy island, and the outward flare. Spinner 60fps and the
+live water-break preview verified by running. (Full suite still blocked by a
+real dashboard server on :8765 failing the token HTTP tests -- unrelated.)
