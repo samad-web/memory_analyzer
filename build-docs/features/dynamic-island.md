@@ -158,6 +158,27 @@ Driven by follow-up requests and the reference repo
   Vite/Next projects keep their icon, so e.g. WealthOS-Mobile shows
   `assets/icon.png` and bizflow-suite `public/logo.png`.
 
+## On "liquid glass" / real blur
+
+A genuine OS backdrop-blur (acrylic/Mica) of the desktop behind the island was
+attempted and does **not** work for a frameless, translucent, custom-painted
+window on current Windows 11 (build 26xxx). Verified empirically against a
+colourful backdrop:
+
+- `SetWindowCompositionAttribute` + `ACCENT_ENABLE_ACRYLICBLURBEHIND` (and
+  `..._BLURBEHIND`) -> renders **solid black**, no blur.
+- `DwmEnableBlurBehindWindow` -> fully transparent, no blur.
+- `DwmSetWindowAttribute(DWMWA_SYSTEMBACKDROP_TYPE)` + extended frame -> solid
+  grey, no blur.
+
+Capturing the desktop behind to blur it ourselves is also out: our window is
+capture-excluded (`hide_from_capture`), so a grab reads black where it sits,
+and hiding it per frame to grab would flicker. So the island uses **painted
+smoked glass**: a cool vertical gradient, a specular top sheen, a cool vibrancy
+glow, a bevel hairline and a bright rim. It is opaque for legibility -- not
+see-through, because without blur a translucent card just shows busy, sharp
+content behind. The 60fps paint keeps it lively.
+
 ## Impact map
 
 - `island.py` (new): pure, no imports beyond stdlib. Self-check at bottom.

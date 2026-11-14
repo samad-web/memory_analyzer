@@ -204,8 +204,10 @@ DEFAULTS = {
     # SirahOS WorkLog bridge. Off by default: nothing goes out until the user
     # fills in a URL and signs in. ``folder_project_map`` is user-maintained
     # (see bridge.py).
+    # Pre-set for the team build: teammates only need to open the dashboard
+    # and sign in; URL and the obvious folder->project map are already there.
     "sirahos": {
-        "api_url": "",
+        "api_url": "https://api.os.sirahagents.com",
         "last_signed_in_as": "",
         "folder_project_map": {},
         "share_prompts": True,
@@ -1015,26 +1017,37 @@ class MonitorWidget(QWidget):
         p.setRenderHint(QPainter.SmoothPixmapTransform)   # crisp scaled logos
         p.translate(self._island_card_left(), 0)   # keep the card centred
 
-        alpha = int(236 + 15 * t)      # a touch more opaque fully open
-        card = self._island_card_path(w, h, self.ISLAND_FLARE)
-        # Liquid glass: a cool vertical gradient body, a bright sheen along the
-        # top edge, and a light rim -- so it reads as translucent glass. (A true
-        # backdrop blur of the desktop is not available to a Qt window.)
+        f = self.ISLAND_FLARE
+        card = self._island_card_path(w, h, f)
+        # Premium painted glass. (A real OS backdrop-blur of the desktop is not
+        # attainable for a frameless translucent window on current Windows --
+        # the acrylic/blur APIs render it solid or clear, verified -- so this is
+        # a carefully layered smoked-glass look, not true refraction.)
+        alpha = 228
         body = QLinearGradient(0, 0, 0, h)
-        body.setColorAt(0.0, QColor(46, 52, 70, alpha))
-        body.setColorAt(0.5, QColor(16, 18, 27, alpha))
-        body.setColorAt(1.0, QColor(8, 9, 14, alpha))
+        body.setColorAt(0.0, QColor(60, 67, 88, alpha))     # lit top
+        body.setColorAt(0.30, QColor(30, 34, 47, alpha))
+        body.setColorAt(1.0, QColor(13, 15, 22, alpha))     # deep base
         p.fillPath(card, body)
         p.save()
         p.setClipPath(card)
-        sheen = QLinearGradient(0, 0, 0, 26)
-        sheen.setColorAt(0.0, QColor(255, 255, 255, 70))
+        # Specular sheen along the top edge -- light catching the glass.
+        sheen = QLinearGradient(0, 0, 0, 24)
+        sheen.setColorAt(0.0, QColor(255, 255, 255, 115))
         sheen.setColorAt(1.0, QColor(255, 255, 255, 0))
-        f = self.ISLAND_FLARE
-        p.fillRect(QRectF(-f, 0, w + 2 * f, 26), sheen)
+        p.fillRect(QRectF(-f, 0, w + 2 * f, 24), sheen)
+        # A cool vibrancy glow pooling toward the bottom, for depth.
+        glow = QLinearGradient(0, h * 0.45, 0, h)
+        glow.setColorAt(0.0, QColor(96, 128, 180, 0))
+        glow.setColorAt(1.0, QColor(84, 116, 168, 26))
+        p.fillRect(QRectF(0, 0, w, h), glow)
+        # A hairline of light just inside the top edge (the glass bevel).
+        p.setPen(QPen(QColor(255, 255, 255, 60), 1))
+        p.drawLine(int(14), 1, int(w - 14), 1)
         p.restore()
+        # Outer rim: bright, the specular edge of the glass.
         p.setBrush(Qt.NoBrush)
-        p.setPen(QPen(QColor(255, 255, 255, 46), 1))
+        p.setPen(QPen(QColor(255, 255, 255, 78), 1.3))
         p.drawPath(card)
 
         # Content is clipped to the card, so a half-dropped row is cut by the
@@ -2846,6 +2859,7 @@ class HydrationBlocker(QWidget):
         self._left = int(block_seconds)
         self._phase = "block"            # block -> ask -> confirm
         self._ask_at = 0.0
+        self._glass = False
         self.yes_btn: QPushButton | None = None
         self.no_btn: DodgeButton | None = None
         self.setWindowFlags(
@@ -2941,12 +2955,14 @@ class HydrationBlocker(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         w, h = self.width(), self.height()
-        # Liquid-glass water wash: deep blue to teal, nearly opaque so the work
-        # behind cannot be read -- that is the point of the break.
+        # Liquid-glass water wash. With real acrylic behind it, a lighter tint
+        # lets the frosted desktop show through; without it, nearly opaque so
+        # the work behind still cannot be read.
+        a = (150, 160, 170) if self._glass else (236, 240, 244)
         g = QLinearGradient(0, 0, 0, h)
-        g.setColorAt(0.0, QColor(10, 26, 48, 236))
-        g.setColorAt(0.55, QColor(12, 40, 64, 240))
-        g.setColorAt(1.0, QColor(8, 22, 40, 244))
+        g.setColorAt(0.0, QColor(10, 26, 48, a[0]))
+        g.setColorAt(0.55, QColor(12, 40, 64, a[1]))
+        g.setColorAt(1.0, QColor(8, 22, 40, a[2]))
         p.fillRect(self.rect(), g)
 
         cx = self._central_bounds().center().x()

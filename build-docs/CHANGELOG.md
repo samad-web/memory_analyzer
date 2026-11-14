@@ -178,3 +178,11 @@ HydrationBlocker + DodgeButton in widget.py; no new module or dependency.
 - logo_path now also does a bounded shallow walk (<=2 levels, skipping
   node_modules/build/etc.), so projects that keep their icon off the beaten
   path still show a logo in the ring.
+
+## polish(dynamic-island): premium painted glass; real OS blur ruled out
+
+Tried real OS acrylic/Mica/blur-behind for genuine refraction; on this Win11
+build every path renders solid or clear, not blurred (see dynamic-island.md),
+so reverted that and kept a premium painted smoked-glass: cool gradient body,
+specular top sheen, vibrancy glow, bevel hairline, bright rim. No new runtime
+cost, no window mask, no acrylic dead code.
