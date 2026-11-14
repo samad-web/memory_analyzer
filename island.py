@@ -131,8 +131,9 @@ _LOGO_NAMES = (
     "logo.png", "icon.png", "app-icon.png", "appicon.png", "logo.jpg",
     "icon.jpg", "favicon.png", "favicon.ico", "icon.ico", "logo.ico",
 )
-_LOGO_DIRS = ("", "assets", "public", "static", "resources", "images", "img",
-              "build-docs", "docs")
+_LOGO_DIRS = ("", "assets", "assets/images", "src/assets", "public",
+              "public/images", "static", "resources", "images", "img", "src",
+              "app", "build-docs", "docs")
 
 
 def logo_path(project_root: str) -> str | None:

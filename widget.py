@@ -174,6 +174,11 @@ DEFAULTS = {
     # into a clickable dropdown, with the system's now-playing media under it.
     # Off by default -- the monitor is the tile's primary face.
     "island": False,
+    # Locked: the island hangs fixed top-centre of every screen (and mirrors
+    # onto both). Unlocked: one draggable island whose position persists.
+    "island_locked": True,
+    "island_cx": None,
+    "island_y": None,
     # Trim automatically once memory passes either limit (percent of total, or
     # gigabytes in use) -- whichever is reached first.
     "auto_trim": True,
@@ -861,6 +866,7 @@ class MonitorWidget(QWidget):
     ISLAND_MEDIA_ART = 38
     ISLAND_MEDIA_BTN = 26
     ISLAND_SYS_H = 28          # the memory-analysis readout row, when expanded
+    ISLAND_FLARE = 13          # how far the top corners flare out past the body
 
     def _island_rows(self) -> tuple[list, int]:
         """Sessions listed in the dropdown (capped), and how many are hidden."""
@@ -900,30 +906,82 @@ class MonitorWidget(QWidget):
         return island.panel_width(n), h
 
     def _island_logical_size(self) -> tuple[int, int]:
-        """Interpolated between the collapsed pill and the open panel, so the
-        window itself grows downward as the drop animates."""
+        """The WINDOW size. It stays at the expanded extent and never changes
+        during a drop -- the drop is painted inside a fixed window, which is
+        what keeps it smooth (resizing a translucent top window per frame is
+        what tore). It carries FLARE of slack each side so the top corners can
+        flare out past the card without being clipped."""
+        ew, eh = self._island_expanded_size()
+        cw, ch = self._island_collapsed_size()
+        return max(cw, ew) + 2 * self.ISLAND_FLARE, max(ch, eh)
+
+    def _island_card_size(self) -> tuple[float, float]:
+        """The visible card, eased from the collapsed pill to the open panel.
+        Only the painting changes between frames; the window does not."""
         cw, ch = self._island_collapsed_size()
         t = self._island_anim_t
         if t <= 0.001:
-            return cw, ch
+            return float(cw), float(ch)
         ew, eh = self._island_expanded_size()
-        return round(cw + (ew - cw) * t), round(ch + (eh - ch) * t)
+        return cw + (ew - cw) * t, ch + (eh - ch) * t
+
+    def _island_card_left(self) -> float:
+        """x of the card inside the (wider) window, so it stays centred."""
+        winw, _ = self._island_logical_size()
+        cardw, _ = self._island_card_size()
+        return (winw - cardw) / 2.0
+
+    def _island_card_rect_global(self, win) -> QRect:
+        """The card's on-screen rectangle for ``win`` (the tile or a clone),
+        used for hover and region click-through."""
+        s = self.scale or 1.0
+        left = self._island_card_left()
+        cardw, cardh = self._island_card_size()
+        g = win.geometry()
+        return QRect(
+            int(g.x() + left * s), int(g.y()), int(cardw * s), int(cardh * s)
+        )
+
+    @staticmethod
+    def _island_card_path(w: float, h: float, flare: float) -> QPainterPath:
+        """A card that hangs from the ceiling: the top flares OUT past the body
+        (widest where it meets the screen edge) through concave curves down to
+        the body sides, with convex rounded bottoms -- a water drop spreading
+        where it clings to the top. The flare depth sits inside the pill's top
+        padding so content never pokes out of it."""
+        f = min(flare, w / 3)
+        neck = 11.0              # flare depth (within the pill's top padding)
+        br = min(20.0, w / 2, max(1.0, h - neck))
+        p = QPainterPath()
+        p.moveTo(-f, 0)
+        p.lineTo(w + f, 0)                                      # flared top edge
+        p.quadTo(w, 0, w, neck)                                 # concave curve in, right
+        p.lineTo(w, h - br)
+        p.arcTo(QRectF(w - 2 * br, h - 2 * br, 2 * br, 2 * br), 0, -90)    # convex BR
+        p.lineTo(br, h)
+        p.arcTo(QRectF(0, h - 2 * br, 2 * br, 2 * br), 270, -90)          # convex BL
+        p.lineTo(0, neck)
+        p.quadTo(0, 0, -f, 0)                                   # concave curve in, left
+        p.closeSubpath()
+        return p
 
     def _paint_island(self, p: QPainter) -> None:
-        w, h = self._island_logical_size()
+        w, h = self._island_card_size()   # the animated card, not the window
         t = self._island_anim_t
+        p.save()
+        p.setRenderHint(QPainter.SmoothPixmapTransform)   # crisp scaled logos
+        p.translate(self._island_card_left(), 0)   # keep the card centred
+
         alpha = int(240 + 11 * t)      # a touch more opaque fully open
-        # Hangs from the top edge: the card's top corners are pushed above the
-        # window (y = -radius), so only the bottom corners round -- a tab
-        # dropping from the screen top, like the reference island.
-        radius = 20.0
-        card = QPainterPath()
-        card.addRoundedRect(QRectF(0.5, -radius, w - 1, h - 1 + radius), radius, radius)
+        card = self._island_card_path(w, h, self.ISLAND_FLARE)
         p.fillPath(card, QColor(0, 0, 0, alpha))
         p.setBrush(Qt.NoBrush)
         p.setPen(QPen(QColor(255, 255, 255, 28), 1))
         p.drawPath(card)
 
+        # Content is clipped to the card, so a half-dropped row is cut by the
+        # card edge (a clean reveal) rather than drawn past it.
+        p.setClipRect(QRectF(0, 0, w, h))
         n = len(self._alerts)
         if n:
             self._paint_island_rings(p, n)
@@ -932,13 +990,45 @@ class MonitorWidget(QWidget):
         else:
             self._paint_island_idle(p, w)
 
-        # Expanded content is drawn once the drop starts; the growing window
-        # clips whatever has not dropped into view yet.
         if t > 0.02:
             self._paint_island_rows(p, w)
             self._paint_island_sys(p, w, self._island_sys_top())
             if self._now is not None:
                 self._paint_island_media(p, w, self._island_media_top())
+
+        if t > 0.9:
+            self._paint_island_close(p, w)
+            self._paint_island_grip(p, w, h)
+        p.restore()
+
+    def _island_close_center(self, w: float) -> tuple[float, float]:
+        return w - 13, 13
+
+    def _paint_island_close(self, p: QPainter, w: float) -> None:
+        """A small red x in the top-right that quits the tile."""
+        cx, cy = self._island_close_center(w)
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(255, 255, 255, 24))
+        p.drawEllipse(QRectF(cx - 9, cy - 9, 18, 18))
+        p.setPen(QPen(QColor(255, 107, 99, 230), 1.6))   # reference danger red
+        p.drawLine(int(cx - 3), int(cy - 3), int(cx + 3), int(cy + 3))
+        p.drawLine(int(cx - 3), int(cy + 3), int(cx + 3), int(cy - 3))
+
+    def _paint_island_grip(self, p: QPainter, w: float, h: float) -> None:
+        """Three ticks in the bottom-right corner: drag to resize the island."""
+        col = TEXT if self._resizing else DIM
+        p.setBrush(Qt.NoBrush)
+        p.setPen(QPen(col, 1.3))
+        bx, by = w - 6, h - 6
+        for off in (1, 5, 9):
+            p.drawLine(int(bx - off), int(by), int(bx), int(by - off))
+
+    def _over_island_resize(self, local: QPoint) -> bool:
+        if self._island_anim_t < 0.9:
+            return False
+        cardw, cardh = self._island_card_size()
+        x = local.x() - self._island_card_left()
+        return (cardw - 16) <= x <= cardw and (cardh - 16) <= local.y() <= cardh
 
     # -- drop animation ------------------------------------------------------
 
@@ -961,11 +1051,11 @@ class MonitorWidget(QWidget):
         anim.start()
 
     def _on_drop_tick(self, value) -> None:
+        # The window is fixed-size, so a drop frame is a repaint, not a resize.
         self._island_anim_t = float(value)
-        self._apply_size()
-        self._reposition_island()
         self.update()
-        self._refresh_island_clones()
+        for clone in self._island_clones:
+            clone.update()
 
     def _on_drop_done(self) -> None:
         self._island_anim = None
@@ -1263,7 +1353,7 @@ class MonitorWidget(QWidget):
             top = self._island_media_top()
             if y < top:
                 return None
-            w, _ = self._island_logical_size()
+            w, _ = self._island_card_size()
             cy = top + self.ISLAND_MEDIA_H / 2
             r = self.ISLAND_MEDIA_BTN / 2
             pv, px, nx = self._media_button_xs(w)
@@ -1277,22 +1367,28 @@ class MonitorWidget(QWidget):
         # Collapsed media mini only exists when no sessions are shown.
         if self._alerts or not now.can_play_pause:
             return None
-        w, _ = self._island_logical_size()
+        w, _ = self._island_card_size()
         if self._hit_circle(x, y, w - island.PILL_PAD - 12, island.PILL_H / 2, 14):
             return self._media.toggle_play_pause
         return None
 
     def _island_click(self, local: QPoint) -> bool:
         """Handle a left-click in island mode. True if it was consumed."""
-        x, y = local.x(), local.y()
+        cardw, _ = self._island_card_size()
+        x = local.x() - self._island_card_left()   # into card space
+        y = local.y()
+        if self._island_anim_t > 0.9:
+            ccx, ccy = self._island_close_center(cardw)
+            if self._hit_circle(x, y, ccx, ccy, 11):
+                self.close()   # quit the box
+                return True
         action = self._island_media_hit(x, y)
         if action is not None:
             action()
             return True
         if self._island_expanded:
             cy = self._island_sys_top() + self.ISLAND_SYS_H / 2
-            w, _ = self._island_logical_size()
-            if self._hit_circle(x, y, w - island.PILL_PAD - 11, cy, 12):
+            if self._hit_circle(x, y, cardw - island.PILL_PAD - 11, cy, 12):
                 self.free_memory()
                 return True
         n = len(self._alerts)
@@ -1370,7 +1466,8 @@ class MonitorWidget(QWidget):
         island is present on both monitors. Clones hold no state -- they paint
         this tile's island and forward clicks back to it."""
         self._teardown_island_clones()
-        if not self.cfg.get("island"):
+        # Mirrors only make sense for the fixed, top-centre island.
+        if not self.cfg.get("island") or not self.cfg.get("island_locked", True):
             return
         own = self.screen()
         for screen in QApplication.screens():
@@ -1394,11 +1491,27 @@ class MonitorWidget(QWidget):
         self._reposition_island()
 
     def _reposition_island(self) -> None:
-        """Keep the island flush to the top edge, horizontally centred, so it
-        grows straight down as it drops open."""
+        """Place the island: locked -> flush top-centre of its screen; unlocked
+        -> the saved centre/top so a drag sticks and it still grows downward."""
         screen = self.screen() or QApplication.primaryScreen()
         area = screen.geometry()
-        self.move(area.center().x() - self.width() // 2, area.top())
+        cx = self.cfg.get("island_cx")
+        top = self.cfg.get("island_y")
+        if self.cfg.get("island_locked", True) or cx is None or top is None:
+            self.move(area.center().x() - self.width() // 2, area.top())
+        else:
+            self.move(int(cx) - self.width() // 2, int(top))
+
+    def _set_island_locked(self, checked: bool) -> None:
+        self.cfg["island_locked"] = bool(checked)
+        save_config(self.cfg)
+        if self.cfg.get("island"):
+            self._reposition_island()
+            if checked:
+                self._build_island_clones()   # mirrors return when fixed
+            else:
+                self._teardown_island_clones()  # one movable island when free
+        self.update()
 
     # -- tray ----------------------------------------------------------------
 
@@ -1461,15 +1574,23 @@ class MonitorWidget(QWidget):
         # expands the dropdown. Everything passes through when the cursor is off.
         if self.cfg.get("island"):
             cur = QCursor.pos()
-            over_self = self.geometry().contains(cur)
-            # Hovering this window OR any mirror keeps the island open.
+            # Hover is tested against the visible card, not the (larger) fixed
+            # window, so the transparent margin never counts as hovering.
+            over_self = self._island_card_rect_global(self).contains(cur)
             self._island_hover = over_self or any(
-                c.geometry().contains(cur) for c in self._island_clones
+                self._island_card_rect_global(c).contains(cur)
+                for c in self._island_clones
             )
             self._set_island_open(self._island_wants_expand())
-            self._set_transparent(bool(self.cfg["click_through"]) and not over_self)
+            # The window spans the expanded extent but only the card is solid,
+            # so clicks pass through wherever the cursor is off the card.
+            self._set_transparent(not over_self)
             if over_self:
-                self.setCursor(Qt.PointingHandCursor)
+                loc = self._to_logical(self.mapFromGlobal(cur))
+                self.setCursor(
+                    Qt.SizeFDiagCursor if self._over_island_resize(loc)
+                    else Qt.PointingHandCursor
+                )
             else:
                 self.unsetCursor()
             return
@@ -2040,8 +2161,19 @@ class MonitorWidget(QWidget):
         # Island mode has its own hit map (rings, dropdown rows, media buttons);
         # an empty spot drags the pill, as with the monitor's blank area.
         if self.cfg.get("island"):
-            # The island hangs top-centre of each screen; it is not dragged.
+            if self._over_island_resize(local):
+                self._resizing = True
+                self.setCursor(Qt.SizeFDiagCursor)
+                event.accept()
+                return
             if self._island_click(local):
+                event.accept()
+                return
+            # When unlocked, empty space drags the island; when locked it is
+            # pinned top-centre and does not move.
+            if not self.cfg.get("island_locked", True):
+                origin = event.globalPosition().toPoint()
+                self._drag_offset = origin - self.frameGeometry().topLeft()
                 event.accept()
             return
         # Bottom-right corner scales the whole tile while dragged.
@@ -2076,10 +2208,18 @@ class MonitorWidget(QWidget):
 
     def mouseMoveEvent(self, event) -> None:  # noqa: N802
         if self._resizing and event.buttons() & Qt.LeftButton:
-            # The top-left stays anchored, so the width the cursor has dragged
-            # out drives the scale and the height follows it proportionally.
             dragged = event.globalPosition().toPoint().x() - self.x()
-            self._set_scale(dragged / WIDTH, save=False)
+            if self.cfg.get("island"):
+                # Scale against the open panel's own width, so the grip tracks
+                # the cursor whatever the island currently holds.
+                base = max(1, self._island_expanded_size()[0])
+                self._set_scale(dragged / base, save=False)
+                self._reposition_island()
+                self._refresh_island_clones()
+            else:
+                # The top-left stays anchored; the dragged width drives the
+                # scale and the height follows it proportionally.
+                self._set_scale(dragged / WIDTH, save=False)
             event.accept()
             return
         if self._drag_offset is not None and event.buttons() & Qt.LeftButton:
@@ -2104,12 +2244,18 @@ class MonitorWidget(QWidget):
             save_config(self.cfg)
             self.unsetCursor()
             self.update()
+            self._refresh_island_clones()
             return
         if self._drag_offset is not None:
             self._drag_offset = None
-            self.cfg["x"], self.cfg["y"] = self.x(), self.y()
+            if self.cfg.get("island"):
+                # Remember where the free island was dropped (centre-x, top-y).
+                self.cfg["island_cx"] = self.x() + self.width() // 2
+                self.cfg["island_y"] = self.y()
+            else:
+                self.cfg["x"], self.cfg["y"] = self.x(), self.y()
             save_config(self.cfg)
-            if self._over_grip(event.position().toPoint()):
+            if not self.cfg.get("island") and self._over_grip(event.position().toPoint()):
                 self.setCursor(Qt.OpenHandCursor)
             else:
                 self.unsetCursor()
@@ -2263,6 +2409,15 @@ class MonitorWidget(QWidget):
             + ("" if media.MediaWatcher.available else " (media unavailable)")
         )
         isle.triggered.connect(self._set_island)
+
+        if self.cfg.get("island"):
+            isle_lock = menu.addAction("   Lock island to top")
+            isle_lock.setCheckable(True)
+            isle_lock.setChecked(bool(self.cfg.get("island_locked", True)))
+            isle_lock.setToolTip(
+                "Pinned top-centre on every screen, or free to drag on one"
+            )
+            isle_lock.triggered.connect(self._set_island_locked)
 
         hidden = menu.addAction("Hide from screenshots")
         hidden.setCheckable(True)
@@ -2433,6 +2588,7 @@ class MonitorWidget(QWidget):
             "pop_on_alert": (bool, self._set_pop_on_alert),
             "show_stats": (bool, self._set_show_stats),
             "island": (bool, self._set_island),
+            "island_locked": (bool, self._set_island_locked),
             "locked": (bool, self._toggle_lock),
             "auto_trim": (bool, self._set_auto_trim),
             "auto_trim_pct": (int, self._set_auto_trim_pct),
@@ -2556,9 +2712,9 @@ class IslandClone(QWidget):
             area = self._screen.geometry()
             self.move(area.center().x() - self.width() // 2, area.top())
             self._last_size = size
-        if self.tile.cfg["click_through"]:
-            over = self.geometry().contains(QCursor.pos())
-            set_click_through(self, not over)
+        # Pass clicks through wherever the cursor is off the visible card.
+        over = self.tile._island_card_rect_global(self).contains(QCursor.pos())
+        set_click_through(self, not over)
         self.update()
 
     def paintEvent(self, event) -> None:  # noqa: N802

@@ -111,3 +111,14 @@ dual-monitor setup: the island drops from the top edge on hover, both screens
 show a synced copy, the memory row reads CPU/RAM/GPU, and the media controls
 drive the real player. Logo-in-ring not verified live (no project here ships a
 logo file); the path lookup is unit-tested and the ring falls back to initials.
+
+## feat(dynamic-island) -- controls + smooth drop + droplet + logos
+
+Island units still 15/15. Offscreen renders (blue backdrop) verified: the
+droplet neck (concave top, convex bottom), the mid-drop clean reveal, project
+logos clipped into the rings (WealthOS assets/icon.png, bizflow public/logo.png;
+memory_analyzer falls back to initials), the quit-x and resize grip, and the
+CPU/RAM/GPU row. Control hit-tests checked programmatically: quit-x calls
+close(), resize grip hits only the corner, unlocked island honours saved
+position. Verified live on the dual-monitor (mixed-DPI) setup: island drops
+from the top on hover, logos render, both screens mirror.

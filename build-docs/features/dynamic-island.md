@@ -125,6 +125,39 @@ Driven by follow-up requests and the reference repo
   readout and the free-RAM button (same `self.sample` and `free_memory` as the
   monitor), so the island is the agent board *and* the system monitor.
 
+## Controls (2026-11-14)
+
+- **Lock / free (`island_locked`, default on).** Locked: pinned top-centre of
+  every screen, mirrored on both, not draggable. Unlocked: one draggable
+  island, no mirror; the dropped position (`island_cx`, `island_y`) persists
+  and it still grows downward from there. Toggle in the menu ("Lock island to
+  top") or over the API.
+- **Quit the box.** A small red x (top-right, shown when open) closes the tile.
+- **Resize.** A grip in the bottom-right (shown when open) scales the island
+  continuously; the Size menu still applies its presets. Scale is shared with
+  the monitor.
+
+## Smoothness and shape (2026-11-14)
+
+- **The window never resizes mid-drop.** Resizing a translucent always-on-top
+  window every frame is what tore ("breaking"). The window is fixed at the
+  expanded extent; the drop is painted inside it -- an eased card
+  (`_island_card_size`) grows downward, centred (`_island_card_left`), with
+  content clipped to the card so a half-dropped row is a clean reveal. The
+  per-frame tick is now a repaint, not a resize. The fixed window is mostly
+  transparent, so hover and click-through test the card rectangle
+  (`_island_card_rect_global`), not the window, and clicks pass through the
+  empty margin.
+- **Hangs like a water drop.** `_island_card_path` draws a pinched neck at the
+  top edge that flares out through concave curves to the full-width body, with
+  convex rounded bottoms -- the island clinging to the top of the screen. The
+  neck sits inside the pill's top padding so rings never poke out of it.
+- **Logos look right.** `SmoothPixmapTransform` is on for scaled icons, and
+  `island.logo_path` also searches nested asset dirs (`assets/images`,
+  `src/assets`, `public/images`, `src`, `app`) -- which is where Expo/React and
+  Vite/Next projects keep their icon, so e.g. WealthOS-Mobile shows
+  `assets/icon.png` and bizflow-suite `public/logo.png`.
+
 ## Impact map
 
 - `island.py` (new): pure, no imports beyond stdlib. Self-check at bottom.

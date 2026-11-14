@@ -146,3 +146,16 @@ a stateless IslandClone (hover/expand global, synced at 50ms); the ring now
 shows the project's own logo from its directory (island.logo_path, initials
 fallback); the open panel carries a CPU/RAM/GPU readout + free-RAM button;
 higher opacity. Island is top-centre per screen, not draggable.
+
+## feat(dynamic-island) -- controls, smooth drop, droplet shape, logos
+
+- Lock/free toggle: locked hangs fixed top-centre on both screens; unlocked is
+  one draggable island whose position persists. A red x quits the box; a
+  bottom-right grip resizes it (Size menu still applies presets).
+- Smooth drop: the window stays a fixed (expanded) size and the card is
+  animated/clipped inside it, so nothing resizes mid-drop (the old per-frame
+  window resize was the "breaking"). Hover/click-through test the card rect.
+- Water-drop shape: pinched concave neck at the top edge flaring to the body,
+  convex rounded bottoms (island.card_path).
+- Logos: SmoothPixmapTransform + wider logo_path search (nested asset dirs), so
+  Expo/Vite/Next projects' icons show in the rings.
