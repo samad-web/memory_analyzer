@@ -1683,6 +1683,10 @@ class MonitorWidget(QWidget):
                 self._island_card_rect_global(c).contains(cur)
                 for c in self._island_clones
             )
+            # Minimise only holds while the cursor stays on the island; once it
+            # leaves, hover works again -- so you get both a minimise and hover.
+            if not self._island_hover:
+                self._island_minimized = False
             self._set_island_open(self._island_wants_expand())
             # The window spans the expanded extent but only the card is solid,
             # so clicks pass through wherever the cursor is off the card.

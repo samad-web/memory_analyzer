@@ -133,9 +133,10 @@ Driven by follow-up requests and the reference repo
   and it still grows downward from there. Toggle in the menu ("Lock island to
   top") or over the API.
 - **Minimise the dropdown.** A minus (top-right, left of the x) tucks the open
-  panel back to the pill and pins it collapsed -- hover no longer opens it.
-  Click the pill to bring the dropdown back; a brand-new alert also un-minimises
-  it so a request still pops.
+  panel back to the pill. It stays collapsed while the cursor is still on the
+  island (so you can peek behind it), then resets when the cursor leaves -- so
+  hover still opens it next time. Clicking the pill restores it immediately, and
+  a brand-new alert un-minimises it so a request still pops.
 - **Quit the box.** A small red x (top-right, shown when open) closes the tile.
 - **Resize.** A grip in the bottom-right (shown when open) scales the island
   continuously; the Size menu still applies its presets. Scale is shared with
