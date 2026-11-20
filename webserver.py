@@ -308,7 +308,10 @@ class DashboardServer:
         # leave it None and settings are written to config.json instead.
         self.apply_hook = apply_hook
         self.cache = _Cache()
-        self.port = int(cfg.get("web_port") or DEFAULT_PORT)
+        # 0 means "any free port" (the tests rely on it); `or` turned it into 8765,
+        # which Windows lets a second server share with the running tile.
+        port = cfg.get("web_port")
+        self.port = DEFAULT_PORT if port in (None, "") else int(port)
         self.bind = str(cfg.get("web_bind") or DEFAULT_BIND)
         self.token = str(cfg.get("web_token") or "")
         self._server: ThreadingHTTPServer | None = None
