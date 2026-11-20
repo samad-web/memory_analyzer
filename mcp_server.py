@@ -543,10 +543,12 @@ def config_path(scope: str = "user") -> str:
     """
     if scope == "project":
         return os.path.join(HERE, ".mcp.json")
+    if scope == "agy":  # Antigravity (App, IDE and CLI share this file)
+        return os.path.join(os.path.expanduser("~"), ".gemini", "config", "mcp_config.json")
     return os.path.join(os.path.expanduser("~"), ".claude.json")
 
 
-def entry(python: str = "python", root: str = "") -> dict:
+def entry(python: str = "python", root: str = "", scope: str = "user") -> dict:
     """The registration for one server.
 
     Forward slashes even on Windows, for the reason ``hooks.py`` gives: the
@@ -554,7 +556,10 @@ def entry(python: str = "python", root: str = "") -> dict:
     file, which is a reliable way to produce a server that silently never runs.
     """
     script = os.path.join(root or HERE, "mcp_server.py").replace("\\", "/")
-    return {"type": "stdio", "command": python, "args": [script], "env": {}}
+    e = {"type": "stdio", "command": python, "args": [script], "env": {}}
+    if scope == "agy":
+        e.pop("type")  # agy's mcp_config.json is command/args/env only
+    return e
 
 
 def install(scope: str = "user", python: str = "python", root: str = "") -> dict:
@@ -570,7 +575,7 @@ def install(scope: str = "user", python: str = "python", root: str = "") -> dict
     if not isinstance(servers, dict):
         servers = {}
     before = json.dumps(servers.get(NAME), sort_keys=True)
-    servers[NAME] = entry(python, root)
+    servers[NAME] = entry(python, root, scope)
     config["mcpServers"] = servers
     _write_config(path, config)
     return {"path": path, "server": NAME,
@@ -594,7 +599,7 @@ def status(scope: str = "user") -> dict:
     servers = _read_config(path).get("mcpServers")
     found = servers.get(NAME) if isinstance(servers, dict) else None
     return {"path": path, "registered": found is not None,
-            "current": found == entry(found.get("command", "python"))
+            "current": found == entry(found.get("command", "python"), scope=scope)
             if isinstance(found, dict) else False,
             "entry": found}
 
@@ -639,13 +644,14 @@ _USAGE = """usage: python mcp_server.py [serve|install|uninstall|status|tools|ca
               run one tool from the shell, as a sanity check
 
   --project   write .mcp.json beside this repo instead of ~/.claude.json
+  --agy       write Antigravity's ~/.gemini/config/mcp_config.json instead
   --python P  the interpreter to register (default: python)
 """
 
 
 def main(argv: list[str]) -> int:
-    args = [a for a in argv if a != "--project"]
-    scope = "project" if "--project" in argv else "user"
+    args = [a for a in argv if a not in ("--project", "--agy")]
+    scope = "project" if "--project" in argv else "agy" if "--agy" in argv else "user"
     python = "python"
     if "--python" in args:
         i = args.index("--python")

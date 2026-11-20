@@ -450,10 +450,13 @@ def main(argv: list[str]) -> int:
         # Wire the six Claude Code hooks to point at this very exe. Uses
         # sys.executable so the frozen build points at the exe path, not python.
         report = hooks.install(scope="user", exe=sys.executable)
+        # Antigravity too, when present; a missing ~/.gemini is reported, not an error.
+        report["antigravity"] = hooks.install_agy(exe=sys.executable)
         print(json.dumps(report, indent=2))
         return 0
     if cmd == "hooks-uninstall":
         report = hooks.uninstall(scope="user")
+        report["antigravity"] = hooks.uninstall_agy()
         print(json.dumps(report, indent=2))
         return 0
     print("usage: SirahlyzerBridge.exe [push|status|notify <action>|hooks-install|hooks-uninstall]")

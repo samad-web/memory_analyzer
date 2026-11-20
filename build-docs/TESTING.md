@@ -132,3 +132,24 @@ stays inside its bounds, an instant Yes routes to "Are you sure?" then resumes
 glass wash, the glassy island, and the outward flare. Spinner 60fps and the
 live water-break preview verified by running. (Full suite still blocked by a
 real dashboard server on :8765 failing the token HTTP tests -- unrelated.)
+
+## feat(antigravity-agents)
+
+- `tests/test_antigravity.py`, 14 tests, named `test_acN_*` for the feature
+  doc's acceptance criteria. Payload and transcript shapes are copied from a
+  live agy 1.5.13 run.
+- Full suite: 379 OK.
+- Live, on agy 1.5.13 in this repo:
+  - AC1: `hooks.py install --agy` → `status` complete.
+  - AC2: one `agy -p` wrote `prompt` and `done`, proj `memory_analyzer`,
+    22,613 input tokens, model `gemini-3.8-flash-high`, plus a mailbox row.
+  - AC3: the agent quoted the injected GOAL line verbatim.
+  - AC6: `agy mcp list` shows the server, and `milestone_state` returned
+    "9 of 11 done".
+- **Failure found:** 21 HTTP tests in `test_push`/`test_tokens` returned 200
+  instead of 401 whenever the tile was running.
+  - Root cause: `webserver.py` read `web_port: 0` through `or DEFAULT_PORT`,
+    which made it 8765. Windows let the test server share 8765 with the live
+    tile, so requests reached the real dashboard over the loopback bypass.
+  - Fixed so that 0 means an ephemeral port. The test was correct and is
+    unchanged. Committed separately as `fix(scoped-tokens)`.

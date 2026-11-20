@@ -593,8 +593,14 @@ Register it, then restart Claude Code:
 ```
 python mcp_server.py install        # ~/.claude.json, every project
 python mcp_server.py install --project   # .mcp.json, this repo only
+python mcp_server.py install --agy       # Antigravity: ~/.gemini/config/mcp_config.json
 python mcp_server.py status
 ```
+
+Antigravity (`agy` CLI, IDE, App) sessions feed the tile too:
+`python hooks.py install --agy` wires three hooks into `~/.gemini/config/hooks.json`.
+Headless `agy -p` auto-denies MCP calls unless an allow rule such as `mcp(*)` is set
+under `permissions.allow`; interactive sessions just prompt.
 
 There is no framework in it. MCP over stdio is newline-delimited JSON-RPC 2.0,
 which is `json` and a `while` loop, and "no new runtime dependencies" is a

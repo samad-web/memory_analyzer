@@ -51,6 +51,7 @@ the repository root, which is both the human-editable source and the thing
 | 13 | [Shareable `.exe` for the team](features/exe-distribution.md) | planned |
 | 14 | [Dashboard visual identity: match SirahOS](features/sirahos-visual-identity.md) | done |
 | 15 | [SirahOS-side webhook: server-to-server WorkLog ingest](features/sirahos-webhook-ingest.md) | declined 2026-11-04 — per-user sign-in stays the only path |
+| 16 | [Antigravity agents on the tile and in memory](features/antigravity-agents.md) | done |
 
 ## Open questions on the SirahOS bridge
 

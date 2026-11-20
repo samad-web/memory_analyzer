@@ -42,6 +42,8 @@ PRICING = {
     "opus":   {"in": 15.0, "out": 75.0, "cc": 18.75, "cr": 1.50},
     "sonnet": {"in": 3.0,  "out": 15.0, "cc": 3.75,  "cr": 0.30},
     "haiku":  {"in": 0.80, "out": 4.0,  "cc": 1.00,  "cr": 0.08},
+    # Antigravity bills in its own credits, not per token; a Claude rate would invent spend.
+    "gemini": {"in": 0.0,  "out": 0.0,  "cc": 0.0,   "cr": 0.0},
     "default": {"in": 3.0, "out": 15.0, "cc": 3.75,  "cr": 0.30},
 }
 
@@ -59,6 +61,8 @@ def price_of(model: str) -> dict:
         return PRICING["haiku"]
     if "sonnet" in m:
         return PRICING["sonnet"]
+    if "gemini" in m:
+        return PRICING["gemini"]
     return PRICING["default"]
 
 

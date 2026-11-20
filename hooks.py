@@ -67,15 +67,15 @@ def _notify_command(action: str, python: str = "python", root: str = "") -> str:
     return f'{python} "{script}" {action}'
 
 
+def _command(action: str, python: str, root: str, exe: str = "") -> str:
+    return f'"{exe}" notify {action}' if exe else _notify_command(action, python, root)
+
+
 def _entry(action: str, python: str, root: str, is_async: bool = True,
            exe: str = "") -> dict:
-    if exe:
-        command = f'"{exe}" notify {action}'
-    else:
-        command = _notify_command(action, python, root)
     entry = {
         "type": "command",
-        "command": command,
+        "command": _command(action, python, root, exe),
         "timeout": TIMEOUT_SECONDS,
     }
     if is_async:
@@ -201,7 +201,81 @@ def status(scope: str = "user", root: str = "") -> dict:
     }
 
 
-_USAGE = """usage: python hooks.py <install|uninstall|status> [--project] [--python EXE]
+# -- Antigravity (agy) ---------------------------------------------------------
+#
+# agy reads ~/.gemini/config/hooks.json: each top-level key is a named spec of
+# events, and ANY other top-level shape silently disables the whole file. Hooks
+# run synchronously through cmd.exe, so only three are registered, all silent
+# on stdout except SessionStart. PreToolUse is left out on purpose: agy has no
+# Notification event, so there is never a block to resume from, and a stray
+# stdout object there would deny the tool call.
+AGY_SPEC = "sirahlyzer"
+AGY_HOOKS = (
+    ("SessionStart", "context"),
+    ("PreInvocation", "prompt"),  # notify.py keeps only invocationNum == 0
+    ("Stop", "done"),
+)
+
+
+def agy_hooks_path() -> str:
+    return os.path.join(os.path.expanduser("~"), ".gemini", "config", "hooks.json")
+
+
+def _agy_warnings(data: dict) -> list[str]:
+    return [f"top-level key {k!r} is not a hook spec; agy ignores the whole file"
+            for k, v in data.items() if not isinstance(v, dict)]
+
+
+def install_agy(python: str = "python", root: str = "", backup: bool = True,
+                exe: str = "") -> dict:
+    """Write our named spec into agy's hooks.json; other specs are kept."""
+    path = agy_hooks_path()
+    if not os.path.isdir(os.path.dirname(os.path.dirname(path))):
+        return {"path": path, "skipped": "Antigravity is not installed (~/.gemini missing)"}
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    data = _read(path)
+    if backup and os.path.exists(path):
+        try:
+            shutil.copy2(path, f"{path}.bak-{time.strftime('%Y%m%d-%H%M%S')}")
+        except OSError:
+            pass
+    replaced = AGY_SPEC in data
+    data[AGY_SPEC] = {
+        event: [{"type": "command", "command": _command(action, python, root or HERE, exe),
+                 "timeout": TIMEOUT_SECONDS}]
+        for event, action in AGY_HOOKS
+    }
+    _write_json(path, data)
+    return {"path": path, "replaced" if replaced else "added": [e for e, _ in AGY_HOOKS],
+            "kept_foreign": len(data) - 1, "warnings": _agy_warnings(data)}
+
+
+def uninstall_agy() -> dict:
+    path = agy_hooks_path()
+    data = _read(path)
+    if data.pop(AGY_SPEC, None) is None:
+        return {"path": path, "removed": 0}
+    _write_json(path, data)
+    return {"path": path, "removed": 1}
+
+
+def status_agy() -> dict:
+    path = agy_hooks_path()
+    data = _read(path)
+    spec = data.get(AGY_SPEC) if isinstance(data.get(AGY_SPEC), dict) else {}
+    present = {event: bool(spec.get(event)) for event, _ in AGY_HOOKS}
+    return {"path": path, "exists": os.path.exists(path), "hooks": present,
+            "complete": all(present.values()), "warnings": _agy_warnings(data)}
+
+
+def _write_json(path: str, data: dict) -> None:
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=2)
+    os.replace(tmp, path)
+
+
+_USAGE = """usage: python hooks.py <install|uninstall|status> [--project] [--python EXE] [--agy]
 
   install     wire the hooks into Claude Code's settings.json
   uninstall   remove them again (other hooks on those events are kept)
@@ -209,6 +283,7 @@ _USAGE = """usage: python hooks.py <install|uninstall|status> [--project] [--pyt
 
   --project   write to this project's .claude/settings.json instead of ~/.claude
   --python    the interpreter the hooks should call (default: python)
+  --agy       target Antigravity's ~/.gemini/config/hooks.json instead
 """
 
 
@@ -220,6 +295,15 @@ def main(argv: list[str]) -> int:
         index = argv.index("--python")
         if index + 1 < len(argv):
             python = argv[index + 1]
+
+    if "--agy" in argv:
+        if command not in ("install", "uninstall", "status"):
+            print(_USAGE)
+            return 2
+        report = {"install": lambda: install_agy(python=python),
+                  "uninstall": uninstall_agy, "status": status_agy}[command]()
+        print(json.dumps(report, indent=2))
+        return 0 if command != "status" or report["complete"] else 1
 
     if command == "install":
         report = install(scope=scope, python=python)

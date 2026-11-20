@@ -1,6 +1,6 @@
 @echo off
 REM Sirahlyzer one-time setup. Safe to re-run. No admin needed.
-REM  1. Wires Claude Code hooks so your agents show up in the island.
+REM  1. Wires Claude Code (and Antigravity, if installed) hooks so your agents show up in the island.
 REM  2. Registers the 15-minute SirahOS push task.
 setlocal
 set "EXE=%~dp0SirahlyzerBridge.exe"
@@ -16,6 +16,7 @@ if errorlevel 1 (
 )
 echo     OK - hooks added to %SETTINGS%
 echo     Restart any open Claude Code sessions so they pick up the hooks.
+findstr /C:"SirahlyzerBridge.exe" "%USERPROFILE%\.gemini\config\hooks.json" >nul 2>&1 && echo     OK - Antigravity hooks added too; start a new agy conversation to load them.
 
 echo.
 echo [2/2] Registering the SirahOS auto-push task (every 15 min)...

@@ -1,5 +1,24 @@
 # Changelog
 
+## feat(antigravity-agents)
+
+Antigravity (`agy` CLI, IDE, App) sessions now reach the tile, Scorecard and
+memory through the same `notify` entry point.
+- `hooks.py install --agy` writes a `sirahlyzer` spec (SessionStart,
+  PreInvocation, Stop) into `~/.gemini/config/hooks.json`.
+- `notify.normalise` maps agy payloads onto Claude key names.
+- `context.emit` prints `injectSteps` for agy.
+- `events.tokens_since` reads agy's flat token fields.
+- Gemini is priced at $0.
+- `mcp_server.py install --agy` registers the MCP server.
+- The exe's `hooks-install` and `setup.cmd` wire agy when `~/.gemini` exists.
+
+## fix(scoped-tokens)
+
+`web_port: 0` became 8765 through `or DEFAULT_PORT`. Tests then shared the
+live tile's port on Windows and hit the real dashboard. 0 now means an
+ephemeral port.
+
 ## fix(auth)
 
 **The loopback bypass survived a tunnel.** `local_only` was decided by the

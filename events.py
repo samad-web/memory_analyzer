@@ -277,6 +277,17 @@ def tokens_since(sid: str, transcript_path: str) -> tuple[dict, str, int]:
             continue
         if not isinstance(obj, dict):
             continue
+        if obj.get("source") == "MODEL":
+            # Antigravity transcript: usage sits flat on the step, and
+            # input_tokens already excludes the cached part, as Claude's does.
+            tok["in"] += int(obj.get("input_tokens") or 0)
+            tok["out"] += int(obj.get("output_tokens") or 0)
+            tok["cr"] += int(obj.get("cache_read_tokens") or 0)
+            if isinstance(obj.get("model"), str) and obj["model"]:
+                model = obj["model"]
+            calls = obj.get("tool_calls")
+            tools += len(calls) if isinstance(calls, list) else 0
+            continue
         msg = obj.get("message")
         if not isinstance(msg, dict) or msg.get("role") != "assistant":
             continue

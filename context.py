@@ -143,23 +143,27 @@ def render(proj: str = "", budget: int = BUDGET, conn=None) -> str:
         return ""
 
 
-def emit(proj: str = "") -> int:
+def emit(proj: str = "", agy: bool = False) -> int:
     """Print the SessionStart hook payload. Always exits 0.
 
-    The payload shape is what Claude Code reads to add context to a starting
-    session; printing nothing is a valid no-op, which is the right behaviour
-    for a project that has no goal and no history yet.
+    The payload shape is what Claude Code (or, with ``agy``, Antigravity) reads
+    to add context to a starting session; printing nothing is a valid no-op,
+    which is the right behaviour for a project that has no goal and no history yet.
     """
     try:
         text = render(proj)
         if not text:
             return 0
-        payload = {
-            "hookSpecificOutput": {
-                "hookEventName": "SessionStart",
-                "additionalContext": text,
+        if agy:
+            # Nested key is intentional: agy reads injectSteps[].systemMessage.systemMessage.
+            payload = {"injectSteps": [{"systemMessage": {"systemMessage": text}}]}
+        else:
+            payload = {
+                "hookSpecificOutput": {
+                    "hookEventName": "SessionStart",
+                    "additionalContext": text,
+                }
             }
-        }
         _write(json.dumps(payload))
     except Exception:
         pass

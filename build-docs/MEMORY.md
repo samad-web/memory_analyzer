@@ -128,6 +128,19 @@ updated whenever a decision is made.
   if the process hung. Toggle + "take a break now" in the menu. See
   `features/hydration-break.md`.
 
+- **Antigravity (`agy`) sessions feed the same pipeline (2026-11-20).** Three
+  global hooks in `~/.gemini/config/hooks.json` (SessionStart, PreInvocation
+  with `invocationNum == 0`, Stop) call the same `notify` entry point. There is
+  no PreToolUse hook: agy has no Notification event, so no block exists to
+  resume from, and a stray stdout object there denies the tool call. Gemini
+  tokens are priced at $0 because they are paid in Antigravity credits.
+  Facts were probed live on agy 1.5.13 for Windows; see
+  `features/antigravity-agents.md`.
+- **firstmate declined (2026-11-20).** It supports agy but only on
+  macOS/Linux (sh, tmux, treehouse; its hooks call `sh -c`, and agy on Windows
+  runs hooks through cmd.exe). It also overlaps with milestone 10. Milestone 10
+  stays in this repo.
+
 ## Constraints
 
 - No new runtime dependencies beyond PySide6/psutil/pywin32 -- **except the

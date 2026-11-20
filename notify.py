@@ -9,7 +9,8 @@ Usage:
     python notify.py clear        # dismiss every session's entry
     python notify.py clear .      # dismiss this project's entries only
 
-Claude Code calls this from hooks in settings.json. Hook input arrives as JSON
+Claude Code calls this from hooks in settings.json; Antigravity (agy) from
+``~/.gemini/config/hooks.json``, its payload mapped by ``normalise``. Hook input arrives as JSON
 on stdin; its ``session_id``, ``cwd`` and ``transcript_path`` identify which
 session's row to update and where to read its token usage.
 
@@ -108,6 +109,27 @@ def read_payload() -> dict:
     except ValueError:
         return {"message": raw.strip().splitlines()[0][:120]}
     return data if isinstance(data, dict) else {}
+
+
+def normalise(payload: dict) -> dict:
+    """Map an Antigravity (agy) payload onto Claude Code's key names.
+
+    agy sends the same facts camelCased; ``conversationId`` is the tell. Only
+    missing keys are filled, so a Claude payload passes through untouched.
+    """
+    if "conversationId" not in payload:
+        return payload
+    out = dict(payload)
+    out["agent"] = "agy"
+    for ours, theirs in (("session_id", "conversationId"),
+                         ("transcript_path", "transcriptPath"),
+                         ("prompt", "lastUserInput")):
+        if not out.get(ours):
+            out[ours] = payload.get(theirs) or ""
+    roots = payload.get("workspacePaths")
+    if not out.get("cwd") and isinstance(roots, list) and roots:
+        out["cwd"] = str(roots[0])
+    return out
 
 
 def is_idle_notice(message: str) -> bool:
@@ -245,13 +267,14 @@ def window_for(key: str, current=None) -> int:
 
 def main(argv: list[str]) -> int:
     action = (argv[1] if len(argv) > 1 else "done").strip().lower()
-    payload = read_payload()
+    payload = normalise(read_payload())
+    agy = payload.get("agent") == "agy"
     cwd = str(payload.get("cwd") or "") or os.getcwd()
     sid = str(payload.get("session_id") or "")
     transcript = str(payload.get("transcript_path") or "")
     # Named for the repository, not for whichever subdirectory the agent is
     # standing in -- see agent_alert.project_root.
-    proj = agent_alert.project_name(cwd) or "Claude Code"
+    proj = agent_alert.project_name(cwd) or ("Antigravity" if agy else "Claude Code")
 
     if action == "clear":
         # "clear" alone dismisses everything; "clear ." just this project.
@@ -271,7 +294,7 @@ def main(argv: list[str]) -> int:
         # the time to read a few rows.
         import context
 
-        return context.emit(proj)
+        return context.emit(proj, agy=agy)
 
     if action in ("end", "session-end"):
         # Capture any final token usage before the session's row disappears.
@@ -281,6 +304,10 @@ def main(argv: list[str]) -> int:
         return 0
 
     if action in ("prompt", "start"):
+        # agy has no prompt event; its PreInvocation fires before every model
+        # call, and invocationNum is 0 only on the first call of a user turn.
+        if payload.get("invocationNum") not in (None, 0):
+            return 0
         # The prompt line is logged here and nowhere else: it is what the
         # dashboard shows as the task's name, and by the time the turn ends the
         # payload no longer carries it.
